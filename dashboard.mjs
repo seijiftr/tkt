@@ -249,7 +249,7 @@ createServer(async(req,res)=>{
         audit(guild,session,'panel.save');
         db.exec('COMMIT');
       }catch(e){db.exec('ROLLBACK');throw e}
-      return send(200,{ok:true});
+      return send(200,{ok:true,id});
     }
     if(action==='publish'){
       if(!settings||!isId(data.channel)||!channels.some(c=>c.id===data.channel&&[0,5].includes(c.type)))throw error(400,'invalid');
