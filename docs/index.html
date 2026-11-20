@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="TKT, bot de tickets para Discord."><title>TKT — Suporte para Discord</title>
+<style>
+:root{color-scheme:dark;--bg:#100a1c;--panel:#1b112b;--line:#38274d;--muted:#baaacc;--ink:#f7efff;--violet:#c29aff;--strong:#8c4ee5}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}a{color:inherit;text-decoration:none}button,input{font:inherit}button,a,input,summary{outline-offset:4px}button,summary{cursor:pointer}.wrap{width:min(1160px,calc(100% - 42px));margin:auto}header{border-bottom:1px solid var(--line)}nav{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:74px}nav .links{display:flex;gap:26px;color:var(--muted)}.brand{font-size:23px;font-weight:800;letter-spacing:-.06em}.mark{display:inline-grid;place-items:center;background:#a76bff;color:#170b24;width:33px;height:33px;border-radius:10px;margin-right:8px;font-size:23px}.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;padding:11px 16px;background:#241438;color:var(--ink);font-weight:680}.btn:hover{border-color:var(--violet);background:#33204d}.primary,.primary:hover{background:var(--strong);color:white}.hero{background:radial-gradient(ellipse at 77% 33%,#301650 0,transparent 55%);border-bottom:1px solid var(--line)}.hero-grid{min-height:550px;padding:70px 0;display:grid;grid-template-columns:1fr 1.12fr;align-items:center;gap:42px}.eyebrow{color:var(--violet);letter-spacing:.13em;text-transform:uppercase;font-weight:800;font-size:13px}h1,h2,h3,p{margin:0}h1{font-size:clamp(50px,6.4vw,88px);line-height:.98;letter-spacing:-.077em;margin:16px 0 23px}h1 span{color:var(--violet)}.lede{color:var(--muted);font-size:19px;max-width:430px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:27px}.window{background:#191024;border:1px solid #533773;border-radius:18px;overflow:hidden;box-shadow:0 28px 95px #0a040f;scroll-margin-top:20px}.window-head,.ticket-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 17px;border-bottom:1px solid var(--line)}.window-head{font-weight:750}.demo-label{font-size:13px;color:#dec1ff;background:#382055;border-radius:6px;padding:3px 8px}.desk{display:grid;grid-template-columns:155px 1fr;min-height:300px}.side{padding:14px 10px;border-right:1px solid var(--line);background:#1e132c}.side h3{font-size:14px;margin:0 6px 10px;color:var(--muted)}.side button{display:block;width:100%;text-align:left;border:0;border-radius:6px;padding:8px;background:transparent;color:var(--muted);font-size:14px;margin-bottom:4px}.side button[aria-pressed=true]{background:#392454;color:white}.ticket{min-width:0}.ticket-head{font-size:14px}.state{color:#dfbdff;font-size:13px;text-align:right}.messages{height:166px;overflow:auto;padding:12px 14px;overflow-wrap:anywhere}.message{font-size:14px;margin-bottom:13px}.message b{display:block;color:var(--violet)}.reply{display:flex;gap:6px;padding:0 12px;margin:0 0 10px}.reply input{min-width:0;width:100%;background:#110a1c;border:1px solid var(--line);border-radius:8px;color:white;padding:8px;font-size:14px}.reply .btn,.tools .btn{padding:6px 9px;font-size:13px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 12px}.section{padding:64px 0}.section h2{font-size:clamp(32px,5vw,53px);letter-spacing:-.06em;margin:3px 0 20px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.card{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:24px}.card .icon{display:grid;place-items:center;width:42px;height:42px;border-radius:10px;background:#372050;color:var(--violet);font-size:21px;margin-bottom:19px}.card p,details p,.install p,footer{color:var(--muted)}.card h3{margin-bottom:7px}.install{background:#231435;border:1px solid var(--line);border-radius:19px;padding:30px}.install code{overflow-wrap:anywhere;color:var(--violet)}details{border-bottom:1px solid var(--line);padding:13px 0}summary{font-weight:700}footer{border-top:1px solid var(--line);padding:22px 0}@media(max-width:890px){.hero-grid{grid-template-columns:1fr;gap:32px;padding:48px 0}.cards{grid-template-columns:1fr 1fr}}@media(max-width:540px){nav .links{display:none}.desk{grid-template-columns:1fr}.side{display:flex;gap:4px;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line)}.side h3{width:100%;margin-bottom:4px}.side button{width:auto}.cards{grid-template-columns:1fr}.section{padding:43px 0}}
+</style>
+</head>
+<body>
+<header><nav class="wrap" aria-label="Navegação principal"><a class="brand" href="#"><span class="mark" aria-hidden="true">✦</span>TKT</a><div class="links"><a href="#recursos">Recursos</a><a href="#instalacao">Instalação</a></div><a class="btn" href="#demo">Testar demo</a></nav></header>
+<main>
+<section class="hero"><div class="wrap hero-grid"><div><p class="eyebrow">Bot de tickets para Discord</p><h1>Suporte que<br><span>flui melhor.</span></h1><p class="lede">Abra canais privados, encaminhe cada pedido à equipe certa e guarde o histórico do atendimento.</p><div class="actions"><a class="btn primary" href="#instalacao">Configurar o bot</a><a class="btn" href="#demo">Explorar demonstração</a></div></div>
+<div class="window" id="demo"><div class="window-head"><span>Central de atendimento</span><span class="demo-label">Demonstração</span></div><div class="desk"><aside class="side"><h3>Fila de tickets</h3><div id="queue"></div></aside><div class="ticket"><div class="ticket-head"><strong id="topic"></strong><span id="state" class="state" aria-live="polite"></span></div><div class="messages" id="messages" role="log" aria-label="Conversa"></div><form class="reply" id="reply"><input id="answer" aria-label="Resposta" placeholder="Responder ao ticket" maxlength="500" required><button class="btn primary">Enviar</button></form><div class="tools"><button id="claim" class="btn"></button><button id="close" class="btn"></button><button id="export" class="btn">Exportar histórico</button></div></div></div></div>
+</div></section>
+<section class="section wrap" id="recursos"><p class="eyebrow">Atendimento</p><h2>Do primeiro pedido ao encerramento</h2><div class="cards">
+<article class="card"><span class="icon" aria-hidden="true">▤</span><h3>Painéis e formulários</h3><p>Publique painéis no Discord e peça uma descrição antes de criar um canal privado.</p></article>
+<article class="card"><span class="icon" aria-hidden="true">◈</span><h3>Triagem pela equipe</h3><p>Assuma tickets, ajuste a prioridade, inclua participantes e reabra atendimentos quando necessário.</p></article>
+<article class="card"><span class="icon" aria-hidden="true">◷</span><h3>Histórico e auditoria</h3><p>Exporte a conversa em texto e envie os registros de encerramento a um canal da equipe.</p></article>
+</div></section>
+<section class="section wrap" id="instalacao"><div class="install"><p class="eyebrow">Instalação</p><h2>Configure no seu servidor</h2><p>O TKT é auto-hospedado. Crie uma aplicação no Discord Developer Portal e siga o README do projeto para iniciar o bot.</p><details><summary>Configurar a equipe</summary><p>Use <code>/tkt configurar</code> para definir o cargo de suporte, a categoria dos canais e o canal de registros.</p></details><details><summary>Publicar um painel</summary><p>Use <code>/tkt painel</code> no canal onde deseja receber pedidos. O botão abre o formulário do ticket.</p></details><details><summary>Atender e encerrar</summary><p>Use os botões do canal ou o comando <code>/ticket</code> para gerenciar o atendimento.</p></details></div></section>
+</main><footer><div class="wrap">TKT · De TicKeT para o seu Discord</div></footer>
+<script>
+const $=id=>document.getElementById(id);
+const tickets=[
+ {name:'suporte-geral',messages:[['Marina','Oi! Como faço para recuperar meu acesso?'],['Equipe','Olá, Marina! Vamos conferir seu cadastro.']]},
+ {name:'financeiro',messages:[['Rafael','Recebi duas cobranças no mesmo pedido.']]},
+ {name:'reportar-bug',messages:[['Lia','O formulário trava depois de clicar em enviar.']]}
+];
+let active=0;
+function render(){
+ const t=tickets[active];
+ $('queue').replaceChildren(...tickets.map((item,i)=>{const b=document.createElement('button');b.textContent='# '+item.name;b.setAttribute('aria-pressed',i===active);b.onclick=()=>{active=i;$('answer').value='';render();$('queue').children[i].focus()};return b}));
+ $('topic').textContent='# '+t.name;
+ $('state').textContent=t.closed?'Encerrado':t.claimed?'Em atendimento':'Aguardando equipe';
+ $('claim').textContent=t.claimed?'Liberar':'Assumir';
+ $('close').textContent=t.closed?'Reabrir':'Encerrar';
+ $('claim').disabled=Boolean(t.closed);
+ $('answer').disabled=Boolean(t.closed);
+ $('reply').querySelector('button').disabled=Boolean(t.closed);
+ $('messages').replaceChildren(...t.messages.map(([author,body])=>{const p=document.createElement('p');p.className='message';const b=document.createElement('b');b.textContent=author;p.append(b,document.createTextNode(body));return p}));
+ $('messages').scrollTop=$('messages').scrollHeight;
+}
+$('reply').onsubmit=e=>{e.preventDefault();const text=$('answer').value.trim();if(text&&!tickets[active].closed){tickets[active].messages.push(['Você',text]);$('answer').value='';render()}};
+$('claim').onclick=()=>{tickets[active].claimed=!tickets[active].claimed;render()};
+$('close').onclick=()=>{tickets[active].closed=!tickets[active].closed;render()};
+$('export').onclick=()=>{const t=tickets[active];const url=URL.createObjectURL(new Blob([t.messages.map(m=>m.join(': ')).join('\n')],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=t.name+'.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+render();
+</script></body></html>
