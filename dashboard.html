@@ -22,6 +22,22 @@ button,input,textarea,select,.button{border:1px solid #49385b;border-radius:9px;
 .panel-config .panel-tabs button{text-align:left}.panel-config .panel-pages{min-width:0}
 .panel-config .stack{margin-top:0}.panel-config .stack+.stack{margin-top:12px}
 @media(max-width:850px){.panel-config{grid-template-columns:minmax(0,1fr);gap:10px}.panel-config .panel-tabs{flex-direction:row;padding-bottom:8px;border-bottom:1px solid var(--line)}}
+
+body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#100d1a}
+.pagehead{background:radial-gradient(ellipse at 90% -10%,#573476 0,transparent 59%),linear-gradient(110deg,#241833,#1b1329)}
+#nav{position:relative;isolation:isolate}#nav .nav-button[aria-pressed=true]{background:transparent;border-color:transparent;box-shadow:none}
+.nav-marker{pointer-events:none;position:absolute;left:0;top:0;z-index:-1;border-radius:9px;background:#3a2552;border:1px solid #664983;transition:transform .32s cubic-bezier(.2,.8,.2,1),width .25s,height .25s}
+.queue-toggle{display:flex;gap:4px;align-self:flex-start;padding:3px;border:1px solid var(--line);border-radius:12px;background:#171020}
+.queue-toggle button{background:transparent;border-color:transparent}.queue-toggle button[aria-pressed=true]{background:#442c5f;border-color:#795799}
+.ticket-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.board-lane{padding:12px;border:1px solid var(--line);border-radius:14px;background:#130e1e}
+.board-lane h3{font-size:15px;margin-bottom:11px;display:flex;align-items:center;justify-content:space-between}
+.board-count{border-radius:999px;background:#3a2651;padding:2px 8px;color:var(--accent);font-size:12px}
+.ticket-tile{display:grid;gap:7px;background:linear-gradient(145deg,#302042,#21162f);border:1px solid #4a365b;border-radius:10px;padding:12px;margin-bottom:8px;overflow-wrap:anywhere;transition:background .16s,border-color .16s,transform .16s}
+.ticket-tile:hover,.ticket-tile:focus-within{border-color:#a778cf;transform:translateY(-2px)}.ticket-tile time{font-size:13px;color:var(--muted)}
+.priority{color:var(--muted);font-size:13px}.priority[data-priority=urgente],.priority[data-priority=alta]{color:#ffc8da}
+@media(max-width:950px){.ticket-board{grid-template-columns:repeat(auto-fit,minmax(205px,1fr))}}
+@media(max-width:450px){.queue-head{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){.nav-marker,.ticket-tile{transition:none}.ticket-tile:hover,.ticket-tile:focus-within{transform:none}}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -48,9 +64,11 @@ const editorCopy={"pt-BR":{"generalTab":"Geral","openingTab":"Painel no Discord"
 for(const key of Object.keys(editorCopy))Object.assign(lex[key],editorCopy[key]);
 Object.assign(lex['pt-BR'],{deletePanel:'Excluir painel',deletedPanel:'Painel excluído.',deletePanelConfirm:'Excluir o painel e remover seus vínculos? As mensagens já publicadas ficam no Discord.'});
 Object.assign(lex.en,{deletePanel:'Delete panel',deletedPanel:'Panel deleted.',deletePanelConfirm:'Delete this panel and remove its links? Previously posted Discord messages stay in place.'});
+Object.assign(lex['pt-BR'],{board:'Quadro',table:'Lista',unassigned:'Na fila',inProgress:'Em atendimento',priority:'Prioridade',baixa:'Baixa',normal:'Normal',alta:'Alta',urgente:'Urgente'});
+Object.assign(lex.en,{board:'Board',table:'List',unassigned:'Unassigned',inProgress:'In progress',priority:'Priority',baixa:'Low',normal:'Normal',alta:'High',urgente:'Urgent'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
-let panelEditing=false;
+let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
 let account=null,ready=false,demo=false,current='home',guild='',data=null,panelId='',faqId='',days=7,request=0;
 const t=key=>lex[language][key]||lex[language].fail;
 const make=(tag,value,attrs={})=>{const e=document.createElement(tag);e.textContent=value??'';for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);return e};
@@ -70,7 +88,7 @@ async function api(path,body){
 function sample(){
   const now=Date.now();
   const areas=language==='en'?['General help','Billing','Bug report']:['Suporte geral','Financeiro','Bugs'];
-  const items=Array.from({length:27},(_,i)=>({channel:'',area:areas[i%3],opened:now-(i*15+1)*3600000,closed:i%3===0?null:now-i*15*3600000,priority:'normal',rating:i%3===1?5:null}));
+  const items=Array.from({length:27},(_,i)=>({channel:'',area:areas[i%3],opened:now-(i*15+1)*3600000,closed:i%3===0?null:now-i*15*3600000,priority:['normal','alta','baixa','urgente'][i%4],assigned:i%6===0,rating:i%3===1?5:null}));
   return {settings:{},roles:[],channels:[],locale:language,faqs:[],panels:[{id:'sample',title:areas[0],body:language==='en'?'Tell us how we can help.':'Conte como podemos ajudar.'}],queue:{items,totals:{active:9,opened:27,closed:18,rated:9}}};
 }
 const navItems=[['home','◈'],['queue','▤'],['panels','▦'],['faq','?'],['settings','⚙'],['analytics','▥']];
@@ -99,10 +117,20 @@ function chrome(){
       b.append(make('span',icon,{class:'nav-icon','aria-hidden':'true'}),make('span',t(key)));
       return b;
     }));
+    nav.prepend(make('span','',{class:'nav-marker','aria-hidden':'true'}));
     nav.dataset.language=language;
   }
-  for(const b of nav.children)b.setAttribute('aria-pressed',String(b.dataset.key===current));
+  for(const b of nav.querySelectorAll('.nav-button'))b.setAttribute('aria-pressed',String(b.dataset.key===current));
+  positionNavMarker();
 }
+function positionNavMarker(){
+  const nav=$('nav'),marker=nav.querySelector('.nav-marker'),active=nav.querySelector('[aria-pressed=true]');
+  if(!marker||!active||!active.offsetWidth)return;
+  marker.style.transform='translate('+active.offsetLeft+'px,'+active.offsetTop+'px)';
+  marker.style.width=active.offsetWidth+'px';marker.style.height=active.offsetHeight+'px';
+}
+window.addEventListener('resize',positionNavMarker);
+document.fonts?.ready.then(positionNavMarker);
 async function loadGuild(){
   const token=++request;data=null;render();status('loading');
   try{const result=await api('/api/servers/'+guild);if(token!==request)return;data=result;status();render()}
@@ -121,15 +149,22 @@ function queuePage(){
   const heading=make('div','',{class:'queue-head'});
   const names=make('div');
   names.append(make('h2',t('queue')),make('p',t('recent'),{class:'muted'}));
-  heading.append(names);
+  const switcher=make('div','',{class:'queue-toggle'});
+  const modes=['table','board'].map(mode=>click(t(mode),()=>{
+    queueMode=mode;localStorage.setItem('tkt-queue-view',mode);page=0;show();
+  },{'aria-pressed':'false'}));
+  switcher.append(...modes);heading.append(names,switcher);
   const search=make('input','',{type:'search',class:'search',placeholder:t('search'),'aria-label':t('search')});
   const filter=select([['all',t('all')],['open',t('open')],['closed',t('done')]],'all');
   filter.setAttribute('aria-label',t('state'));
-  const controls=make('div','',{class:'filters'});controls.append(search,filter);
+  const priorities=['baixa','normal','alta','urgente'];
+  const priority=select([['all',t('all')+' · '+t('priority')],...priorities.map(key=>[key,t(key)])],'all');
+  priority.setAttribute('aria-label',t('priority'));
+  const controls=make('div','',{class:'filters'});controls.append(search,filter,priority);
   const viewport=make('div','',{class:'scroll-table'});
   const table=make('table','',{class:'tickets-table'});
   const thead=make('thead'), header=make('tr'), tbody=make('tbody');
-  for(const key of ['area','state','created'])header.append(make('th',t(key),{scope:'col'}));
+  for(const key of ['area','state','priority','created'])header.append(make('th',t(key),{scope:'col'}));
   thead.append(header);table.append(thead,tbody);viewport.append(table);
   const empty=make('p',t('noTickets'),{class:'empty'});
   const pager=make('div','',{class:'pager'}), summary=make('p','',{'aria-live':'polite'});
@@ -138,26 +173,46 @@ function queuePage(){
   const next=click(t('next'),()=>{page++;show()});
   const buttons=make('div','',{class:'actions'});buttons.append(prev,next);pager.append(summary,buttons);
   const pageSize=8;
+  const board=make('div','',{class:'ticket-board'});
+  const ticketName=q=>q.channel&&q.closed===null?make('a',q.area,{href:'https://discord.com/channels/'+guild+'/'+q.channel,rel:'noopener noreferrer',target:'_blank'}):make('strong',q.area);
+  const priorityLabel=q=>make('span',t(priorities.includes(q.priority)?q.priority:'normal'),{class:'priority','data-priority':q.priority});
   function show(){
     const query=search.value.trim().toLocaleLowerCase(language);
-    const items=data.queue.items.filter(q=>q.area.toLocaleLowerCase(language).includes(query)&&(filter.value==='all'||(filter.value==='open')===(q.closed===null)));
+    const items=data.queue.items.filter(q=>q.area.toLocaleLowerCase(language).includes(query)&&(filter.value==='all'||(filter.value==='open')===(q.closed===null))&&(priority.value==='all'||q.priority===priority.value));
     page=Math.max(0,Math.min(page,Math.ceil(items.length/pageSize)-1));
     const start=page*pageSize, visible=items.slice(start,start+pageSize);
     tbody.replaceChildren(...visible.map(q=>{
       const row=make('tr'), name=make('td'), state=make('td');
-      const link=q.channel?make('a',q.area,{href:'https://discord.com/channels/'+guild+'/'+q.channel,rel:'noopener noreferrer',target:'_blank'}):make('strong',q.area);
+      const link=ticketName(q);
       const opened=q.closed===null;
       name.append(link);state.append(make('span',t(opened?'open':'done'),{class:'pill '+(opened?'open':'closed')}));
-      row.append(name,state,make('td',date(q.opened)));return row;
+      const level=make('td');level.append(priorityLabel(q));row.append(name,state,level,make('td',date(q.opened)));return row;
     }));
-    viewport.hidden=items.length===0;
+    const showBoard=queueMode==='board';
+    modes.forEach((button,index)=>button.setAttribute('aria-pressed',String(index===Number(showBoard))));
+    if(showBoard){
+      const groups={unassigned:[],inProgress:[],done:[]};
+      for(const item of items)groups[item.closed!==null?'done':item.assigned?'inProgress':'unassigned'].push(item);
+      board.replaceChildren(...Object.entries(groups).map(([key,tickets])=>{
+        const lane=make('section','',{class:'board-lane'}),title=make('h3',t(key));
+        title.append(make('span',tickets.length,{class:'board-count'}));lane.append(title);
+        for(const item of tickets){
+          const tile=make('article','',{class:'ticket-tile'});
+          tile.append(ticketName(item),priorityLabel(item),make('time',date(item.opened),{datetime:new Date(item.opened).toISOString()}));
+          lane.append(tile);
+        }
+        return lane;
+      }));
+    }
+    board.hidden=!showBoard||!items.length;
+    viewport.hidden=showBoard||!items.length;
     empty.hidden=items.length>0;
-    pager.hidden=items.length===0;
+    pager.hidden=showBoard||!items.length;
     summary.textContent=(start+1)+'–'+(start+visible.length)+' '+t('of')+' '+items.length;
     prev.disabled=page===0;next.disabled=start+visible.length>=items.length;
   }
-  search.oninput=filter.onchange=()=>{page=0;show()};
-  show();area.append(heading,controls,viewport,empty,pager);return area;
+  search.oninput=filter.onchange=priority.onchange=()=>{page=0;show()};
+  show();area.append(heading,controls,viewport,board,empty,pager);return area;
 }
 async function save(action,body){
   const server=guild;
