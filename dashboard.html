@@ -39,6 +39,9 @@ body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#10
 @media(max-width:450px){.queue-head{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.nav-marker,.ticket-tile{transition:none}.ticket-tile:hover,.ticket-tile:focus-within{transform:none}}
 .opening-preview{margin:14px 0}.ticket-message-preview{background:#1a1326;display:grid;gap:8px;padding:14px;border-radius:9px;border-left:4px solid var(--accent);overflow-wrap:anywhere}.ticket-message-preview p{white-space:pre-wrap}.preview-controls{display:flex;flex-wrap:wrap;gap:6px}.preview-controls button{opacity:1;color:#fff;background:#545464}.preview-controls [data-style="1"]{background:#535acc}.preview-controls [data-style="3"]{background:#21714b}.preview-controls [data-style="4"]{background:#a53448}.ticket-message-preview img{max-width:100%;max-height:220px;object-fit:contain;border-radius:7px;justify-self:start}
+.editor-rail{position:sticky;top:84px;min-width:0}.editor-rail .save-strip{position:static;display:grid;gap:8px;margin:12px 0 0;padding:10px}.editor-rail .save-strip button{width:100%}.editor-rail .save-strip p{font-size:13px}.save-strip[data-dirty=true]{border-color:#a378d5}.save-strip p:empty{display:none}
+@media(max-width:850px){.editor-rail{top:72px;z-index:6;background:var(--panel);padding-bottom:8px}.editor-rail .save-strip{display:flex;flex-direction:row-reverse;justify-content:flex-end;margin-top:5px}.editor-rail .save-strip button{width:auto}}
+@media(max-width:690px){.editor-rail{top:0;position:relative}}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -69,6 +72,8 @@ Object.assign(lex['pt-BR'],{board:'Quadro',table:'Lista',unassigned:'Na fila',in
 Object.assign(lex.en,{board:'Board',table:'List',unassigned:'Unassigned',inProgress:'In progress',priority:'Priority',baixa:'Low',normal:'Normal',alta:'High',urgente:'Urgent'});
 Object.assign(lex['pt-BR'],{ticketColor:'Cor da mensagem do ticket',inheritColor:'Usar cor padrão',exampleTicket:'Exemplo de solicitação',ticketHeading:'Título da mensagem do ticket',ticketRequester:'Solicitante',ticketExampleUser:'@Membro'});
 Object.assign(lex.en,{ticketColor:'Ticket message color',inheritColor:'Use default color',exampleTicket:'Sample request',ticketHeading:'Ticket message title',ticketRequester:'Requester',ticketExampleUser:'@Member'});
+Object.assign(lex['pt-BR'],{savePanel:'Salvar painel',renameButton:'Renomear',claimButton:'Assumir',closeButton:'Fechar',savedPanel:'Sem alterações pendentes'});
+Object.assign(lex.en,{savePanel:'Save panel',renameButton:'Rename',claimButton:'Claim',closeButton:'Close',savedPanel:'No pending changes'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
@@ -382,9 +387,9 @@ function presentationEditor(panel,title,body){
   const insideCard=make('section','',{class:'area opening-preview'});
   const insideCanvas=make('div','',{class:'ticket-message-preview'});
   insideCard.append(make('h3',t('preview')),insideCanvas);inside.append(insideCard);
-  const claim=button(inside,'claimButton',look.inside?.claim,true);
-  const close=button(inside,'closeButton',look.inside?.close,true);
-  const requestClose=button(inside,'requestCloseButton',look.inside?.requestClose??{enabled:false},true);
+  const claim=button(inside,'claimButton',look.inside?.claim);
+  const rename=button(inside,'renameButton',look.inside?.rename);
+  const close=button(inside,'closeButton',look.inside?.close??{style:4});
   const card=make('section','',{class:'area'});
   const previewTitle=make('h3',t('preview')),canvas=make('div','',{class:'stack panel-preview'});
   card.append(previewTitle,canvas,make('p',t('publishHint'),{class:'muted'}));
@@ -395,7 +400,7 @@ function presentationEditor(panel,title,body){
       fields:fieldItems.map(x=>({name:x.name.value,value:x.value.value,inline:x.inline.checked})),
       blocks:blockItems.map(x=>({kind:x.kind.value,value:x.value.value})),actionsFirst:actionsFirst.checked,
       inside:{layout:insideLayout.value,message:insideMessage.value,title:insideTitle.value,footer:insideFooter.value,image:insideImage.value,
-        color:inherited.checked?'':insideColor.value,actionsFirst:insideFirst.checked,claim:claim(),close:close(),requestClose:requestClose()}};
+        color:inherited.checked?'':insideColor.value,actionsFirst:insideFirst.checked,claim:claim(),rename:rename(),close:close(),requestClose:look.inside?.requestClose??{enabled:false}}};
   }
   function preview(){
     const p=dataValue();
@@ -426,7 +431,7 @@ function presentationEditor(panel,title,body){
     }
     if(v.footer)parts.push(make('small',v.footer,{class:'muted'}));
     const actions=make('div','',{class:'preview-controls'});
-    for(const [key,button] of [['claimButton',v.claim],['closeButton',v.close],['requestCloseButton',v.requestClose]]){
+    for(const [key,button] of [['claimButton',v.claim],['renameButton',v.rename],['closeButton',v.close]]){
       if(button.enabled)actions.append(make('button',[button.emoji,button.label||t(key)].filter(Boolean).join(' '),{type:'button',disabled:'','data-style':button.style}));
     }
     insideCanvas.replaceChildren(...(v.layout==='v2'&&v.actionsFirst?[actions,...parts]:[...parts,actions]));
@@ -506,7 +511,8 @@ function panelsPage(){
     const page=e.target.closest('[role=tabpanel]');
     const index=pages.indexOf(page);if(index>=0&&page.hidden)selectTab(index);
   },true);
-  const button=make('button',t('save'),{class:'primary'});
+  const button=make('button',t('savePanel'),{class:'primary',type:'submit'});
+  let saving=false;
   const note=make('p','',{class:'muted','aria-live':'polite'});
   const strip=make('div','',{class:'save-strip'});strip.append(note,button);
   const values=()=>({id:panelId,title:title.value,body:body.value,rules:{...fields.value(),presentation:presentation.value()}});
@@ -514,10 +520,13 @@ function panelsPage(){
   const isDirty=()=>JSON.stringify(values())!==baseline;
   function refresh(){
     const dirty=isDirty();
-    note.textContent=dirty?t('changes'):'';
+    note.textContent=t(dirty?'changes':'savedPanel');
+    strip.dataset.dirty=String(dirty);
+    button.disabled=saving||!dirty;
     updatePublication(dirty);
   }
   editor.addEventListener('input',refresh);
+  editor.addEventListener('change',refresh);
   editor.addEventListener('click',e=>{if(!e.target.closest('#panel-page-5'))queueMicrotask(refresh)});
   editor.onsubmit=async e=>{
     e.preventDefault();
@@ -527,7 +536,8 @@ function panelsPage(){
       data.panels=data.panels.filter(p=>p.id!==item.id).concat(item);
       panelId=item.id;status('saved');render();return;
     }
-    button.disabled=true;await save('panel',item);button.disabled=false;
+    saving=true;refresh();
+    try{await save('panel',item)}finally{saving=false;refresh()}
   };
   const head=make('div','',{class:'panel-editor-head'});
   const back=click('‹ '+t('panels'),()=>{
@@ -557,8 +567,9 @@ function panelsPage(){
     },{class:'secondary'});
     head.append(remove);
   }
-  const columns=make('div','',{class:'panel-config'});columns.append(tabs,sections);
-  editor.append(columns,strip);selectTab(0);refresh();
+  const rail=make('div','',{class:'editor-rail'});rail.append(tabs,strip);
+  const columns=make('div','',{class:'panel-config'});columns.append(rail,sections);
+  editor.append(columns);selectTab(0);refresh();
   form.replaceChildren(head,editor);layout.append(form);return layout;
 }
 function faqPage(){
