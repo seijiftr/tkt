@@ -46,6 +46,8 @@ const compositionCopy={"pt-BR":{"appearance":"Mensagem e botões do painel","lay
 for(const key of Object.keys(compositionCopy))Object.assign(lex[key],compositionCopy[key]);
 const editorCopy={"pt-BR":{"generalTab":"Geral","openingTab":"Painel no Discord","insideTab":"Dentro do ticket","formTab":"Formulário","scheduleTab":"Horários","publishTab":"Publicar","editorTabs":"Configuração do painel","changes":"Alterações ainda não salvas","noPublication":"Salve o painel antes de publicar.","requestCloseButton":"Solicitar encerramento"},"en":{"generalTab":"General","openingTab":"Discord panel","insideTab":"Inside ticket","formTab":"Form","scheduleTab":"Hours","publishTab":"Publish","editorTabs":"Panel settings","changes":"Unsaved changes","noPublication":"Save the panel before publishing.","requestCloseButton":"Request closure"}};
 for(const key of Object.keys(editorCopy))Object.assign(lex[key],editorCopy[key]);
+Object.assign(lex['pt-BR'],{deletePanel:'Excluir painel',deletedPanel:'Painel excluído.',deletePanelConfirm:'Excluir o painel e remover seus vínculos? As mensagens já publicadas ficam no Discord.'});
+Object.assign(lex.en,{deletePanel:'Delete panel',deletedPanel:'Panel deleted.',deletePanelConfirm:'Delete this panel and remove its links? Previously posted Discord messages stay in place.'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false;
@@ -444,6 +446,28 @@ function panelsPage(){
     panelEditing=false;panelId='';render();
   },{class:'quiet'});
   head.append(back,make('h2',panel?.title||t('add')));
+  if(panel){
+    const remove=click(t('deletePanel'),async()=>{
+      if(!window.confirm(t('deletePanelConfirm')))return;
+      const server=guild;
+      remove.disabled=true;
+      try{
+        if(demo){
+          data.panels=data.panels.filter(item=>item.id!==panel.id);
+          for(const item of data.panels){
+            const display=item.rules?.presentation;
+            if(display?.links)display.links=display.links.filter(id=>id!==panel.id);
+          }
+        }else await api('/api/servers/'+server+'/deletepanel',{id:panel.id});
+        if(guild!==server)return;
+        panelId='';panelEditing=false;
+        if(demo)render();else await loadGuild();
+        if(data)status('deletedPanel');
+      }catch(e){status(e.message)}
+      finally{remove.disabled=false}
+    },{class:'secondary'});
+    head.append(remove);
+  }
   const columns=make('div','',{class:'panel-config'});columns.append(tabs,sections);
   editor.append(columns,strip);selectTab(0);refresh();
   form.replaceChildren(head,editor);layout.append(form);return layout;
