@@ -1,7 +1,7 @@
 import {
   Client, Events, GatewayIntentBits, PermissionFlagsBits as Permission,
   ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
-  ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, LabelBuilder, StringSelectMenuBuilder,
+  ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, LabelBuilder, StringSelectMenuBuilder, FileUploadBuilder, CheckboxBuilder,
   AttachmentBuilder, MessageFlags,
 } from 'discord.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -189,6 +189,11 @@ function panelModal(i,panel){
       const menu=new StringSelectMenuBuilder().setCustomId(id).setRequired(question.required).setMinValues(question.required?1:0).setMaxValues(1)
         .addOptions(question.options.map((option,n)=>({label:option,value:String(n)})));
       label.setStringSelectMenuComponent(menu);
+    }else if(question.kind==='file'){
+      label.setFileUploadComponent(new FileUploadBuilder().setCustomId(id).setRequired(question.required)
+        .setMinValues(question.required?1:0).setMaxValues(1));
+    }else if(question.kind==='checkbox'){
+      label.setCheckboxComponent(new CheckboxBuilder().setCustomId(id));
     }else{
       const input=new TextInputBuilder().setCustomId(id).setStyle(question.kind==='short'?TextInputStyle.Short:TextInputStyle.Paragraph)
         .setMaxLength(question.kind==='short'?220:950).setRequired(question.required);
@@ -199,21 +204,78 @@ function panelModal(i,panel){
   return modal;
 }
 function panelAnswers(i,panel){
-  return (panel.rules.questions??[]).flatMap((question,index)=>{
+  const fields=[],uploads=[];
+  for(const [index,question] of (panel.rules.questions??[]).entries()){
     const id='q'+index;
     let value='';
     if(i.fields.fields.has(id)){
-      value=question.kind==='choice'?(question.options[Number(i.fields.getStringSelectValues(id)[0])]??''):i.fields.getTextInputValue(id).trim();
+      if(question.kind==='choice')value=question.options[Number(i.fields.getStringSelectValues(id)[0])]??'';
+      else if(question.kind==='checkbox'){
+        const checked=i.fields.getCheckbox(id);
+        if(checked||!question.required)value=checked?translated(i,'Sim','Yes'):translated(i,'Não','No');
+      }else if(question.kind==='file'){
+        const file=i.fields.getUploadedFiles(id)?.first();
+        if(file){uploads.push(file);value=file.name||translated(i,'Arquivo','File')}
+      }else value=i.fields.getTextInputValue(id).trim();
     }
     if(question.required&&!value)throw new Error(translated(i,'Preencha as perguntas obrigatórias.','Answer the required questions.'));
-    return value?[{name:question.label,value}]:[];
+    if(value)fields.push({name:question.label,value});
+  }
+  if(uploads.reduce((sum,file)=>sum+file.size,0)>8*1024*1024)throw new Error(translated(i,'Os anexos devem somar até 8 MB.','Attachments must total at most 8 MB.'));
+  return {fields,uploads};
+}
+async function downloadUploads(uploads){
+  return Promise.all(uploads.map(async (file,index)=>{
+    const url=new URL(file.url);
+    if(url.protocol!=='https:'||!['cdn.discordapp.com','media.discordapp.net'].includes(url.hostname))throw Error('Invalid Discord attachment URL.');
+    const response=await fetch(url,{signal:AbortSignal.timeout(12000),redirect:'error'});
+    if(!response.ok||!response.body)throw Error('Discord attachment unavailable.');
+    const chunks=[];
+    let bytes=0;
+    for await (const chunk of response.body){
+      bytes+=chunk.length;
+      if(bytes>file.size||bytes>8*1024*1024)throw Error('Invalid Discord attachment size.');
+      chunks.push(chunk);
+    }
+    if(bytes!==file.size)throw Error('Incomplete Discord attachment.');
+    return new AttachmentBuilder(Buffer.concat(chunks),{name:(index+1)+'-'+file.name.replace(/[^a-z0-9_.-]/gi,'_').slice(0,85)});
+  }));
+}
+function ticketActions(i,panel){
+  const look=panel?.rules.presentation?.inside;
+  const defaults=[
+    ['v:assumir',translated(i,'Assumir / liberar','Claim / release'),ButtonStyle.Primary,look?.claim],
+    ['v:encerrar',translated(i,'Encerrar','Close'),ButtonStyle.Secondary,look?.close]
+  ];
+  const components=defaults.filter(([, , ,item])=>item?.enabled!==false).map(([id,label,style,item])=>{
+    const button=new ButtonBuilder().setCustomId(id).setLabel(item?.label||label).setStyle(item?.style??style);
+    if(item?.emoji)button.setEmoji(item.emoji);
+    return button;
   });
+  return components.length?[new ActionRowBuilder().addComponents(components)]:[];
 }
 const buttons = (...items) => new ActionRowBuilder().addComponents(items.map(([id,label,style]) =>
   new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style)));
 const card = (title, description) => new EmbedBuilder().setColor(0x9a62e7).setTitle(title).setDescription(description);
 const allowed = { parse: [] };
 
+function componentTexts(components){
+  return components.flatMap(item=>item.content?[item.content]:componentTexts(item.components??[]));
+}
+function firstTicketMessage(i,area,description,answers,warning,panel,files){
+  const presentation=panel?.rules.presentation;
+  const content=[warning,presentation?.inside?.message].filter(Boolean);
+  const fields=[{name:translated(i,'Solicitante','Requester'),value:'<@'+i.user.id+'>'},...answers];
+  const actions=ticketActions(i,panel);
+  if(presentation?.inside?.layout==='v2'){
+    const parts=[{type:10,content:'## '+area},...content.map(value=>({type:10,content:value})),
+      {type:10,content:description},...fields.map(f=>({type:10,content:'**'+f.name+'**\n'+f.value})),
+      ...files.map(file=>({type:13,file:{url:'attachment://'+file.name}})),...actions.map(r=>r.toJSON())];
+    return {flags:MessageFlags.IsComponentsV2,components:[{type:17,accent_color:parseInt(presentation.color.slice(1),16),components:parts}],allowedMentions:allowed,files};
+  }
+  return { ...(content.length?{content:content.join('\n\n')}:{}),
+    embeds:[card(area,description).addFields(...fields)],allowedMentions:allowed,components:actions,files};
+}
 async function transcript(channel) {
   const pages = [];
   let before;
@@ -228,7 +290,7 @@ async function transcript(channel) {
     const files = [...message.attachments.values()].map(file => file.url).join(' ');
     const embeds = message.embeds.map(embed => [embed.title, embed.description, ...embed.fields.map(f=>f.name+': '+f.value)].filter(Boolean).join('\n')).join('\n');
     return '[' + message.createdAt.toISOString() + '] ' + message.author.username + ' (' + message.author.id + ')\n' +
-      [message.content, embeds, files].filter(Boolean).join('\n');
+      [message.content, embeds, ...componentTexts(message.components.map(item=>item.toJSON())), files].filter(Boolean).join('\n');
   });
   return new AttachmentBuilder(Buffer.from(lines.join('\n\n')), {name:'ticket-' + channel.id + '.txt'});
 }
@@ -249,7 +311,8 @@ async function openTicket(i, config, panel=null) {
     const hasForm=Boolean(panel?.rules.questions?.length);
     const description=hasForm?translated(i,'Respostas do formulário','Form responses'):i.fields.getTextInputValue('description').trim();
     if(!area||!description)throw new Error(translated(i,'Preencha a área e a descrição.','Enter the area and description.'));
-    const answers=hasForm?panelAnswers(i,panel):[];
+    const {fields:answers,uploads}=hasForm?panelAnswers(i,panel):{fields:[],uploads:[]};
+    const files=await downloadUploads(uploads);
     const category=panel?.rules.category||config.category;
     const supportRoles=[...new Set([config.role,panel?.rules.role].filter(Boolean))];
     const name = ('ticket-' + i.user.username).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0,85);
@@ -266,14 +329,7 @@ async function openTicket(i, config, panel=null) {
       db.prepare('INSERT INTO tickets(channel,guild,owner,area,opened) VALUES(?,?,?,?,?)')
         .run(channel.id,i.guildId,i.user.id,area,Date.now());
       if(panel?.rules.role)db.prepare('INSERT INTO ticket_panel_routes VALUES(?,?)').run(channel.id,panel.rules.role);
-      await channel.send({
-        ...(warning?{content:warning}:{}),
-        embeds:[card(area,description).addFields({name:translated(i,'Solicitante','Requester'),value:'<@'+i.user.id+'>'},...answers)],
-        allowedMentions:allowed, components:[buttons(
-          ['v:assumir',translated(i,'Assumir / liberar','Claim / release'),ButtonStyle.Primary],
-          ['v:encerrar',translated(i,'Encerrar','Close'),ButtonStyle.Secondary],
-        )],
-      });
+      await channel.send(firstTicketMessage(i,area,description,answers,warning,panel,files));
     } catch (error) {
       db.prepare('DELETE FROM ticket_panel_routes WHERE channel=?').run(channel.id);
       db.prepare('DELETE FROM tickets WHERE channel=?').run(channel.id);
@@ -417,9 +473,14 @@ client.on(Events.InteractionCreate, async i => {
       const row = db.prepare('SELECT COUNT(*) total, COUNT(closed) closed, AVG(rating) average FROM tickets WHERE guild=?').get(i.guildId);
       return await privateReply(i,'Abertos **'+(row.total-row.closed)+'** · Encerrados **'+row.closed+'** · Avaliação média **'+(row.average?.toFixed(1)??'—')+'**');
     }
-    if(i.isButton()&&i.customId.startsWith('v:open:')){
+    const choice=i.isStringSelectMenu?.()&&i.customId.startsWith('v:choose:');
+    if(choice||i.isButton()&&i.customId.startsWith('v:open:')){
+      const source=choice?panelFromDb(db,i.guildId,i.customId.slice(9)):null;
+      const chosen=choice?i.values[0]:i.customId.slice(7);
+      if(choice&&(!source||![source.id,...(source.rules.presentation?.links??[])].includes(chosen)))
+        return await privateReply(i,translated(i,'O menu mudou. Peça à equipe para publicar o painel novamente.','The menu changed. Ask staff to publish the panel again.'));
       if(!config)return await privateReply(i,translated(i,'A central ainda não foi configurada.','The support desk is not configured yet.'));
-      const panel=panelFromDb(db,i.guildId,i.customId.slice(7));
+      const panel=panelFromDb(db,i.guildId,chosen);
       if(!panel)return await privateReply(i,translated(i,'Este painel está indisponível.','This panel is unavailable.'));
       checkAvailability(i,panel);
       return await i.showModal(panelModal(i,panel));
