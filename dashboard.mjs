@@ -251,6 +251,24 @@ createServer(async(req,res)=>{
       }catch(e){db.exec('ROLLBACK');throw e}
       return send(200,{ok:true,id});
     }
+    if(action==='deletepanel'){
+      const id=text(data.id,80,true);
+      db.exec('BEGIN IMMEDIATE');
+      try{
+        if(!db.prepare('DELETE FROM web_panels WHERE guild=? AND id=?').run(guild,id).changes)throw error(404,'invalid');
+        db.prepare('DELETE FROM panel_rules WHERE id=?').run(id);
+        const linked=db.prepare('SELECT r.id,r.rules FROM panel_rules r JOIN web_panels p ON p.id=r.id WHERE p.guild=?').all(guild);
+        for(const row of linked){
+          const rules=JSON.parse(row.rules);
+          if(!rules.presentation?.links?.includes(id))continue;
+          rules.presentation.links=rules.presentation.links.filter(link=>link!==id);
+          db.prepare('UPDATE panel_rules SET rules=? WHERE id=?').run(JSON.stringify(rules),row.id);
+        }
+        audit(guild,session,'panel.delete');
+        db.exec('COMMIT');
+      }catch(e){db.exec('ROLLBACK');throw e}
+      return send(200,{ok:true});
+    }
     if(action==='publish'){
       if(!settings||!isId(data.channel)||!channels.some(c=>c.id===data.channel&&[0,5].includes(c.type)))throw error(400,'invalid');
       const panel=typeof data.id==='string'&&panelFromDb(db,guild,data.id);
