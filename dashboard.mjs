@@ -59,7 +59,7 @@ function queue(guild) {
   if (!exists) return {totals:{opened:0,closed:0,active:0,rated:0},items:[]};
   return {
     totals:db.prepare('SELECT COUNT(*) opened, COUNT(closed) closed, COUNT(*)-COUNT(closed) active, COUNT(rating) rated FROM tickets WHERE guild=?').get(guild),
-    items:db.prepare('SELECT channel, area, opened, closed, priority, rating FROM tickets WHERE guild=? ORDER BY opened DESC LIMIT 100').all(guild)
+    items:db.prepare('SELECT channel, area, opened, closed, priority, rating, agent IS NOT NULL AS assigned FROM tickets WHERE guild=? ORDER BY opened DESC LIMIT 100').all(guild)
   };
 }
 createServer(async(req,res)=>{
