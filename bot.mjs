@@ -26,6 +26,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS ticket_close_requests (
     channel TEXT PRIMARY KEY, id TEXT NOT NULL, requester TEXT NOT NULL, reason TEXT NOT NULL, message TEXT
   );
+  CREATE TABLE IF NOT EXISTS ticket_channel_deletions (channel TEXT PRIMARY KEY, due INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS ticket_notes (
     id INTEGER PRIMARY KEY, channel TEXT NOT NULL, author TEXT NOT NULL, body TEXT NOT NULL, created INTEGER NOT NULL
   );
@@ -297,7 +298,14 @@ function firstTicketMessage(i,area,description,answers,warning,panel,files){
   return { ...(content.length?{content:content.join('\n\n')}:{}),
     embeds:[card(area,description).addFields(...fields)],allowedMentions:allowed,components:actions,files};
 }
-async function transcript(channel) {
+const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+function attachmentUrl(raw){
+  try{
+    const url=new URL(raw);
+    return url.protocol==='https:'&&['cdn.discordapp.com','media.discordapp.net'].includes(url.hostname)?escapeHtml(url.href):'';
+  }catch{return ''}
+}
+async function transcript(channel,i,record,reason='') {
   const pages = [];
   let before;
   for (;;) {
@@ -307,13 +315,55 @@ async function transcript(channel) {
     if (page.size < 100) break;
     before = page.last().id;
   }
-  const lines = pages.flat().reverse().map(message => {
-    const files = [...message.attachments.values()].map(file => file.url).join(' ');
-    const embeds = message.embeds.map(embed => [embed.title, embed.description, ...embed.fields.map(f=>f.name+': '+f.value)].filter(Boolean).join('\n')).join('\n');
-    return '[' + message.createdAt.toISOString() + '] ' + message.author.username + ' (' + message.author.id + ')\n' +
-      [message.content, embeds, ...componentTexts(message.components.map(item=>item.toJSON())), files].filter(Boolean).join('\n');
-  });
-  return new AttachmentBuilder(Buffer.from(lines.join('\n\n')), {name:'ticket-' + channel.id + '.txt'});
+  const lang=translated(i,'pt-BR','en');
+  const format=new Intl.DateTimeFormat(lang,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'});
+  const messages=pages.flat().reverse();
+  const rows=messages.map(message=>{
+    const name=escapeHtml(message.member?.displayName||message.author.globalName||message.author.username);
+    const avatar=attachmentUrl(message.author.displayAvatarURL?.({size:64}));
+    const files=[...message.attachments.values()].map(file=>{
+      const url=attachmentUrl(file.url),label=escapeHtml(file.name);
+      return url?'<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+label+'</a>':label;
+    });
+    const embeds=message.embeds.map(embed=>[embed.title,embed.description,...embed.fields.map(field=>field.name+': '+field.value)].filter(Boolean).join('\n'));
+    const contents=[message.content,...embeds,...componentTexts(message.components.map(item=>item.toJSON()))].filter(Boolean);
+    const date=message.createdAt;
+    return '<article>'+(avatar?'<img alt="" loading="lazy" src="'+avatar+'">':'<span class="avatar" aria-hidden="true">'+name.slice(0,1)+'</span>')+
+      '<div><div class="meta"><strong>'+name+'</strong>'+ (message.author.bot?'<small>APP</small>':'')+
+      '<time datetime="'+date.toISOString()+'">'+format.format(date)+' UTC</time></div>'+
+      contents.map(value=>'<div class="text">'+escapeHtml(value)+'</div>').join('')+
+      (files.length?'<ul>'+files.map(file=>'<li>'+file+'</li>').join('')+'</ul>':'')+'</div></article>';
+  }).join('');
+  const title=escapeHtml(record.area), channelName=escapeHtml(channel.name||channel.id);
+  const transcriptTitle=translated(i,'Histórico do ticket','Ticket transcript');
+  const metadata=[translated(i,'Solicitante','Requester')+' '+record.owner,translated(i,'Abertura','Opened')+' '+format.format(record.opened)+' UTC',messages.length+' '+translated(i,'mensagens','messages')];
+  const html='<!doctype html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+    '<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; img-src https://cdn.discordapp.com https://media.discordapp.net">'+
+    '<meta name="referrer" content="no-referrer"><title>'+transcriptTitle+' · '+title+'</title><style>'+
+    ':root{color-scheme:dark;font:16px/1.55 system-ui;background:#100c1a;color:#f5eefe}*{box-sizing:border-box}body{margin:0}main{max-width:920px;margin:auto;padding:clamp(16px,5vw,48px)}header{padding:24px;background:#251639;border:1px solid #493264;border-radius:16px;margin-bottom:18px}h1{margin:7px 0;font-size:clamp(25px,5vw,40px);line-height:1.1;overflow-wrap:anywhere}p{margin:8px 0}.label,a{color:#d8b8ff}.label{font-weight:700}article{display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;padding:15px 8px;border-bottom:1px solid #332443}article img,.avatar{width:36px;height:36px;border-radius:50%;background:#4a2e69}.avatar{display:grid;place-items:center}.meta{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}time,small,footer,.details{color:#c3b1d1}time,small{font-size:.78rem}.text{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}li{overflow-wrap:anywhere}ul{margin:5px 0}footer{padding-top:18px}</style></head><body><main><header>'+
+    '<span class="label">TKT · '+transcriptTitle+'</span><h1>'+title+'</h1><p>#'+channelName+' · '+escapeHtml(channel.id)+'</p>'+
+    '<p class="details">'+metadata.map(escapeHtml).join(' · ')+'</p>'+
+    (reason?'<p>'+translated(i,'Motivo','Reason')+' · '+escapeHtml(reason)+'</p>':'')+
+    '</header>'+rows+'<footer>TKT · Discord</footer></main></body></html>';
+  return new AttachmentBuilder(Buffer.from(html),{name:'ticket-' + channel.id + '.html'});
+}
+
+function scheduleChannelDeletion(channelId,due,channel,retryDelay=0){
+  const timer=setTimeout(async()=>{
+    try{
+      if(!db.prepare('SELECT 1 FROM ticket_channel_deletions WHERE channel=? AND due=?').get(channelId,due))return;
+      const target=channel??await client.channels.fetch(channelId);
+      if(target)await target.delete('TKT: ticket fechado com histórico salvo');
+    }catch(error){
+      if(error.code!==10003){
+        console.error('TKT: falha ao excluir canal',channelId,error.code??error.name);
+        scheduleChannelDeletion(channelId,due,undefined,60000);
+        return;
+      }
+    }
+    db.prepare('DELETE FROM ticket_channel_deletions WHERE channel=? AND due=?').run(channelId,due);
+  },Math.max(retryDelay,due-Date.now()));
+  timer.unref();
 }
 
 async function openTicket(i, config, panel=null) {
@@ -404,8 +454,9 @@ async function manage(i, config, action, requestId) {
       ];
       return i.editReply({content:lines.join('\n'),allowedMentions:allowed});
     }
-    if (action === 'historico') return i.editReply({files:[await transcript(channel)]});
+    if (action === 'historico') return i.editReply({files:[await transcript(channel,i,record)]});
     if (action === 'reabrir') {
+      if(db.prepare('SELECT 1 FROM ticket_channel_deletions WHERE channel=?').get(channel.id))throw new Error(translated(i,'O canal deste ticket está programado para exclusão.','This ticket channel is scheduled for deletion.'));
       if (!record.closed) throw new Error(translated(i,'Este ticket já está aberto.',"This ticket is already open."));
       return exclusive('open:' + i.guildId + ':' + record.owner, async () => {
         const current = db.prepare('SELECT channel FROM tickets WHERE guild=? AND owner=? AND closed IS NULL').get(i.guildId,record.owner);
@@ -444,7 +495,7 @@ async function manage(i, config, action, requestId) {
       const log = await i.guild.channels.fetch(config.logs);
       if (log.id === channel.id || !log.isTextBased()) throw new Error('Configure um canal separado para os registros.');
       if (log.permissionsFor(i.guild.roles.everyone)?.has(Permission.ViewChannel)) throw new Error(translated(i,'O canal de registros precisa ser privado.',"The log channel must be private."));
-      const file = await transcript(channel);
+      const file = await transcript(channel,i,record,reason);
       await channel.permissionOverwrites.edit(record.owner,{ViewChannel:false,SendMessages:false},{type:1});
       try {
         await log.send({content:'Ticket **'+channel.id+'** '+translated(i,'encerrado por','closed by')+' <@'+i.user.id+'>.'+(reason?'\n'+translated(i,'Motivo','Reason')+': '+reason:''), files:[file],allowedMentions:allowed});
@@ -453,7 +504,17 @@ async function manage(i, config, action, requestId) {
         throw error;
       }
       const closedAt = Date.now();
-      db.prepare('UPDATE tickets SET closed=? WHERE channel=?').run(closedAt,channel.id);
+      const due=closedAt+5000;
+      db.exec('BEGIN');
+      try{
+        db.prepare('UPDATE tickets SET closed=? WHERE channel=?').run(closedAt,channel.id);
+        db.prepare('INSERT INTO ticket_channel_deletions VALUES(?,?)').run(channel.id,due);
+        db.exec('COMMIT');
+      }catch(error){
+        db.exec('ROLLBACK');
+        throw error;
+      }
+      scheduleChannelDeletion(channel.id,due,channel);
       if(closeRequest){
         removeCloseRequest(channel.id,closeRequest.id);
         await resolveCloseCard(i,closeRequest,translated(i,'Ticket encerrado.','Ticket closed.'));
@@ -518,6 +579,7 @@ async function manage(i, config, action, requestId) {
 }
 
 client.once(Events.ClientReady, async bot => {
+  for(const job of db.prepare('SELECT channel,due FROM ticket_channel_deletions').all())scheduleChannelDeletion(job.channel,job.due);
   try {
     const faqCommand = new SlashCommandBuilder().setName('faq')
       .setDescription('Pesquise perguntas frequentes')
