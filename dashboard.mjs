@@ -78,15 +78,30 @@ createServer(async(req,res)=>{
       return redirect('https://discord.com/oauth2/authorize?'+params,[cookie('tkt_state',state,300)]);
     }
     if(method==='GET' && url.pathname==='/auth/callback'){
+      const failure=(code)=>redirect('/?error='+code,[cookie('tkt_state','',0)]);
       const state=url.searchParams.get('state');
       const attempt=state && state===cookies.tkt_state && states.get(state);
-      if(!attempt||attempt.until<Date.now()||!url.searchParams.has('code'))return redirect('/?error=oauth');
+      if(!attempt||attempt.until<Date.now())return failure('oauthExpired');
       states.delete(state);
-      const token=await discord('/oauth2/token','Basic '+Buffer.from(DISCORD_CLIENT_ID+':'+DISCORD_CLIENT_SECRET).toString('base64'),{
-        method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code:url.searchParams.get('code'),redirect_uri:callback})
-      });
-      const bearer='Bearer '+token.access_token;
-      const user=await discord('/users/@me',bearer);
+      const code=url.searchParams.get('code');
+      if(!code)return failure('oauthDenied');
+      let token,user,bearer;
+      try {
+        const response=await fetch('https://discord.com/api/v10/oauth2/token',{
+          method:'POST',
+          headers:{'Content-Type':'application/x-www-form-urlencoded',Authorization:'Basic '+Buffer.from(DISCORD_CLIENT_ID+':'+DISCORD_CLIENT_SECRET).toString('base64')},
+          body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:callback}),
+          signal:AbortSignal.timeout(10000)
+        });
+        token=await response.json();
+        if(!response.ok){
+          const message=token.error==='invalid_client'?'oauthClient':token.error==='invalid_grant'?'oauthExpired':'oauthUnavailable';
+          return failure(message);
+        }
+        if(typeof token.access_token!=='string'||!Number.isFinite(token.expires_in)||token.expires_in<=0)return failure('oauthUnavailable');
+        bearer='Bearer '+token.access_token;
+        user=await discord('/users/@me',bearer);
+      }catch{return failure('oauthUnavailable')}
       const id=uid(), age=Math.min(token.expires_in,28800);
       sessions.delete(cookies.tkt_session);
       sessions.set(id,{user:{id:user.id,name:user.global_name||user.username},bearer,until:Date.now()+age*1000});
