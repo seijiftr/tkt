@@ -7,7 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env bot.mjs"
+    "start": "node --env-file-if-exists=.env bot.mjs",
+    "dashboard": "node --env-file-if-exists=.env dashboard.mjs"
   },
   "dependencies": {
     "discord.js": "^14.25.1"
