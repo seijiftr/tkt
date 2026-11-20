@@ -33,7 +33,11 @@ async function discord(path,auth,options={}) {
   const response=await fetch('https://discord.com/api/v10'+path,{
     ...options,headers:{...options.headers,Authorization:auth},signal:AbortSignal.timeout(10000)
   });
-  if (!response.ok) throw error(response.status===403||response.status===404?403:502,'discord');
+  if (!response.ok) {
+    const result=await response.json().catch(()=>null);
+    console.warn('Discord API',options.method||'GET',path.split('?')[0].replace(/[0-9]{17,20}/g,':id'),response.status,result?.code??'');
+    throw error(response.status===403||response.status===404?403:502,'discord');
+  }
   return response.json();
 }
 async function input(req) {
@@ -113,8 +117,26 @@ createServer(async(req,res)=>{
     }
     if(method==='GET' && url.pathname==='/api/session')return send(200,{ready:authReady,user:session?.until>Date.now()?session.user:null});
     if(!session||session.until<=Date.now())throw error(401,'login');
-    const guilds=(await discord('/users/@me/guilds?limit=200',session.bearer)).filter(manager);
-    if(method==='GET'&&url.pathname==='/api/servers')return send(200,guilds.map(({id,name})=>({id,name})));
+    if(!session.guilds || session.guildsUntil<=Date.now()){
+      session.guilds=(await discord('/users/@me/guilds?limit=200',session.bearer)).filter(manager);
+      session.guildsUntil=Date.now()+30000;
+    }
+    const guilds=session.guilds;
+    if(method==='GET'&&url.pathname==='/api/servers'){
+      const eligible=new Set(guilds.map(guild=>guild.id));
+      const installed=new Set();
+      let after='';
+      while(installed.size<eligible.size){
+        const path='/users/@me/guilds?limit=200'+(after?'&after='+after:'');
+        const page=await discord(path,'Bot '+DISCORD_TOKEN);
+        for(const item of page)if(eligible.has(item.id))installed.add(item.id);
+        if(page.length<200)break;
+        const next=page.at(-1).id;
+        if(next===after)break;
+        after=next;
+      }
+      return send(200,guilds.filter(guild=>installed.has(guild.id)).map(({id,name})=>({id,name})));
+    }
     const route=url.pathname.match(/^\/api\/servers\/([0-9]{17,20})(?:\/([a-z]+))?$/);
     if(!route)throw error(404,'invalid');
     const [,guild,action]=route;
