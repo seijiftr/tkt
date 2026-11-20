@@ -286,17 +286,26 @@ function componentTexts(components){
 }
 function firstTicketMessage(i,area,description,answers,warning,panel,files){
   const presentation=panel?.rules.presentation;
-  const content=[warning,presentation?.inside?.message].filter(Boolean);
+  const inside=presentation?.inside;
+  const title=inside?.title||area;
+  const color=parseInt((inside?.color||(inside?.layout==='v2'?presentation.color:'#9a62e7')).slice(1),16);
+  const content=[warning,inside?.message].filter(Boolean);
   const fields=[{name:translated(i,'Solicitante','Requester'),value:'<@'+i.user.id+'>'},...answers];
   const actions=ticketActions(i,panel);
-  if(presentation?.inside?.layout==='v2'){
-    const parts=[{type:10,content:'## '+area},...content.map(value=>({type:10,content:value})),
+  if(inside?.layout==='v2'){
+    const parts=[{type:10,content:'## '+title},...content.map(value=>({type:10,content:value})),
       {type:10,content:description},...fields.map(f=>({type:10,content:'**'+f.name+'**\n'+f.value})),
-      ...files.map(file=>({type:13,file:{url:'attachment://'+file.name}})),...actions.map(r=>r.toJSON())];
-    return {flags:MessageFlags.IsComponentsV2,components:[{type:17,accent_color:parseInt(presentation.color.slice(1),16),components:parts}],allowedMentions:allowed,files};
+      ...files.map(file=>({type:13,file:{url:'attachment://'+file.name}}))];
+    if(inside.image)parts.push({type:12,items:[{media:{url:inside.image}}]});
+    if(inside.footer)parts.push({type:10,content:'-# '+inside.footer});
+    const buttons=actions.map(row=>row.toJSON());
+    return {flags:MessageFlags.IsComponentsV2,components:[{type:17,accent_color:color,components:inside.actionsFirst?[...buttons,...parts]:[...parts,...buttons]}],allowedMentions:allowed,files};
   }
+  const embed=card(title,description).setColor(color).addFields(...fields);
+  if(inside?.image)embed.setImage(inside.image);
+  if(inside?.footer)embed.setFooter({text:inside.footer});
   return { ...(content.length?{content:content.join('\n\n')}:{}),
-    embeds:[card(area,description).addFields(...fields)],allowedMentions:allowed,components:actions,files};
+    embeds:[embed],allowedMentions:allowed,components:actions,files};
 }
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 function attachmentUrl(raw){
