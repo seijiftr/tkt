@@ -67,7 +67,7 @@ export function validatePresentation(value,available,owner){
       return {kind:'text',value};
     }),
     actionsFirst:p.actionsFirst===true,
-    inside:{layout:p.inside?.layout==='v2'?'v2':'embed',message:limited(p.inside?.message??'',900),claim:buttonConfig(p.inside?.claim),close:buttonConfig(p.inside?.close)}
+    inside:{layout:p.inside?.layout==='v2'?'v2':'embed',message:limited(p.inside?.message??'',900),claim:buttonConfig(p.inside?.claim),close:buttonConfig(p.inside?.close),requestClose:buttonConfig({enabled:false,...p.inside?.requestClose})}
   };
 }
 
