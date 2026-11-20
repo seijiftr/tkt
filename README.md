@@ -1,31 +1,45 @@
 # TKT
 
-O nome TKT vem das letras destacadas em **T**ic**K**e**T**. Bot de atendimento para Discord com identidade visual roxa. O site em `docs/index.html` inclui uma demonstração local da fila de atendimento. O bot usa Node.js 24, discord.js e SQLite. Execute uma instância por banco de dados.
+Bot de tickets para Discord com site e dashboard em Português (Brasil) e English. O dashboard usa OAuth2 e divide dados por servidor. O bot e o dashboard usam o mesmo arquivo SQLite.
 
 ## Instalação
 
-1. Crie uma aplicação em [Discord Developer Portal](https://discord.com/developers/applications) e obtenha o token do bot. Ative **Message Content Intent** em **Bot** para que o histórico inclua mensagens e anexos. A disponibilidade do intent pode depender de aprovação do Discord.
-2. Instale a aplicação no servidor com os escopos `bot` e `applications.commands`. Conceda ao bot **Gerenciar canais**, **Gerenciar cargos** (para editar permissões de canal), **Ver canais**, **Enviar mensagens**, **Inserir links**, **Anexar arquivos** e **Ler histórico de mensagens**. Confira também as permissões na categoria de tickets e no canal de registros.
-3. Copie `.env.example` para `.env` e preencha `DISCORD_TOKEN` localmente. Use `DISCORD_GUILD_ID` para registrar os comandos apenas no servidor de desenvolvimento. Sem esse valor, o registro é global. Preserve o arquivo SQLite e seus dados ao reiniciar ou atualizar a hospedagem.
-4. Na pasta do projeto, execute `npm ci` e `npm start`.
-5. Crie um cargo de suporte, uma categoria e um canal de registros visível somente à equipe. Use `/tkt configurar` e publique o painel com `/tkt painel`.
+1. Use Node.js 24 ou superior e instale as dependências com `npm ci`.
+2. No [Discord Developer Portal](https://discord.com/developers/applications), crie a aplicação **TKT**. Ative **Message Content Intent** na aba **Bot**.
+3. Instale no servidor de testes com os escopos `bot` e `applications.commands`. Conceda **Gerenciar canais**, **Gerenciar cargos**, **Ver canais**, **Enviar mensagens**, **Inserir links**, **Anexar arquivos** e **Ler histórico de mensagens**.
+4. Copie `.env.example` para `.env`. Preencha o token do bot e o ID do servidor de testes. Em **OAuth2**, obtenha o Client ID e Client Secret, cadastre exatamente `http://127.0.0.1:4310/auth/callback` como redirect e preencha os dois campos no `.env`.
+5. Abra dois terminais na mesma pasta. No primeiro, execute `npm start`. No segundo, execute `npm run dashboard`.
+6. Abra <http://127.0.0.1:4310/>, entre com Discord e selecione um servidor que você administre. Configure o cargo de suporte, a categoria e um canal de registros privado. Salve um painel, selecione o canal de publicação e publique. Use uma conta sem permissões administrativas para verificar o formulário e o canal privado.
 
-## Fluxo de atendimento
+### Windows com o Node portátil
 
-- O membro clica em **Abrir ticket**, explica o pedido e recebe um canal privado. Há um ticket ativo por membro e servidor.
-- A equipe usa `/ticket assumir`, `/ticket prioridade`, `/ticket adicionar` e `/ticket remover` para organizar o atendimento.
-- A equipe pode exportar a conversa com `/ticket historico`. Ao encerrar, o bot retira o acesso do solicitante, preserva o canal para a equipe e envia a transcrição ao canal de registros. Participantes convidados mantêm as permissões concedidas pela equipe até serem removidos.
-- O solicitante pode avaliar o atendimento por mensagem direta, se aceitar DMs. A equipe pode reabrir o canal com `/ticket reabrir` e consultar o panorama com `/tkt fila`.
-- O histórico registra URLs de anexos. Para retenção duradoura dos arquivos, será preciso armazenar os próprios anexos.
+```powershell
+Set-Location -LiteralPath 'C:\Outros\Dev Projects\TKT'
+& '.\.runtime\node-v24.22.3-win-x64\node.exe' --env-file-if-exists=.env bot.mjs
+```
 
-## Escopo da versão
+Em outro PowerShell:
 
-O site apresenta o produto e permite testar a fila com dados fictícios. Login via Discord, atendimento sincronizado na web e configuração pelo navegador fazem parte da próxima etapa.
+```powershell
+Set-Location -LiteralPath 'C:\Outros\Dev Projects\TKT'
+& '.\.runtime\node-v24.22.3-win-x64\node.exe' --env-file-if-exists=.env dashboard.mjs
+```
 
-O escopo de paridade inclui ainda painéis com vários destinos e menus, formulários configuráveis, roteamento e transferência, horários e regras de inatividade, transcrições pesquisáveis com compartilhamento temporário, candidaturas, FAQ, automações e OCR, recursos de IA, verificação e proteção contra spam, boas-vindas, sorteios, enquetes, métricas detalhadas, Components V2, variáveis, integrações e configurações avançadas de marca e acesso.
+Para atualizar uma instalação existente, pare os processos, faça uma cópia do banco e do `.env`, copie os arquivos da nova versão na pasta do TKT e reinicie. O bot cria as tabelas e os gatilhos de métricas ao abrir o banco existente.
 
-Referências de produto e API
+## Operação
 
-- [Documentação do Tickety](https://tickety.top/docs)
-- [Documentação do Tickets](https://docs.tickets.bot/)
-- [Comandos de aplicação do Discord](https://docs.discord.com/developers/docs/interactions/slash-commands)
+- O dashboard oferece seleção de servidor, fila com busca por área e estado, configuração, publicação de painéis e Analytics.
+- A equipe administra o ticket com **Assumir**, **Encerrar** e os comandos de prioridade, participantes, reabertura e transcrição no Discord.
+- Use a preferência de idioma no dashboard para trocar toda a interface. Em configuração, o idioma do servidor controla os textos principais do bot. Os nomes ingleses dos comandos aparecem para clientes Discord configurados em inglês.
+- Analytics soma atividade diária em UTC. Para atribuição e primeira resposta, mostra a mediana, o P90 e o número de tickets medidos. O bot passa a registrar esses eventos após a atualização. O P90 é o menor tempo que cobre pelo menos 90% da amostra. Os novos encerramentos ficam no histórico mesmo após reabertura.
+
+## Site e hospedagem
+
+O site estático está em `docs/`. O GitHub Pages publica a partir de `main` → `/docs`. O dashboard estático abre em modo demonstração. O dashboard com dados reais roda no processo Node.js com OAuth2. Para acesso remoto use HTTPS com proxy reverso na frente do processo, ajuste `DASHBOARD_ORIGIN` para a origem pública e cadastre o callback correspondente. Mantenha o SQLite em armazenamento persistente e execute uma instância do bot por banco.
+
+## FAQ e relatórios avançados
+
+Na aba **FAQ**, escreva uma pergunta e uma resposta, selecione o idioma e marque **Disponível no Discord** quando estiver pronta. No Discord, use `/faq` com busca opcional e escolha de idioma. O bot responde de forma privada e retorna até três respostas publicadas daquele servidor.
+
+A aba **Analytics** inclui um mapa de demanda por dia e hora em UTC, a distribuição por idade da fila atual e a taxa de reabertura. A taxa divide os tickets únicos reabertos após um encerramento no período pelos tickets únicos com encerramento registrado no período. A idade da fila inclui tickets abertos antes do período selecionado. O histórico de reaberturas começa quando o bot com a coleta de eventos é iniciado.
