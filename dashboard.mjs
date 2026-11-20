@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import {initFaq} from './faq.mjs';
+import {initPanels,panelFromDb,validateRules} from './panels.mjs';
 
 const { DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = process.env;
 const port = Number(process.env.DASHBOARD_PORT || 4310);
@@ -12,11 +13,11 @@ const db = new DatabaseSync(process.env.DATABASE_PATH || 'tkt.sqlite');
 db.exec(`
   PRAGMA busy_timeout=5000;
   CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, role TEXT NOT NULL, category TEXT NOT NULL, logs TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS web_panels (id TEXT PRIMARY KEY, guild TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS guild_locale (guild TEXT PRIMARY KEY, locale TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS web_audit (guild TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, occurred INTEGER NOT NULL);
 `);
 initFaq(db);
+initPanels(db);
 const page = readFileSync(new URL('./dashboard.html',import.meta.url));
 const states=new Map(), sessions=new Map();
 const timer=setInterval(()=>{for (const map of [states,sessions]) for (const [key,value] of map) if(value.until<Date.now())map.delete(key)},60000);
@@ -193,7 +194,7 @@ createServer(async(req,res)=>{
       settings,locale,channels:channels.filter(c=>[0,4,5].includes(c.type)).map(({id,name,type})=>({id,name,type})),
       roles:roles.filter(r=>r.id!==guild).map(({id,name})=>({id,name})),
       faqs:db.prepare('SELECT id,question,answer,locale,published FROM faq_entries WHERE guild=? ORDER BY question').all(guild),
-      panels:db.prepare('SELECT id,title,body FROM web_panels WHERE guild=? ORDER BY title').all(guild),queue:queue(guild)
+      panels:db.prepare('SELECT p.id,p.title,p.body,r.rules FROM web_panels p LEFT JOIN panel_rules r ON r.id=p.id WHERE p.guild=? ORDER BY p.title').all(guild).map(p=>({...p,rules:p.rules?JSON.parse(p.rules):{}})),queue:queue(guild)
     });
     if(method!=='POST')throw error(405,'invalid');
     const data=await input(req);
@@ -231,20 +232,29 @@ createServer(async(req,res)=>{
     }
     if(action==='panel'){
       const title=text(data.title,80,true),body=text(data.body,1000,true);
-      if(data.id){
-        if(!db.prepare('UPDATE web_panels SET title=?,body=? WHERE guild=? AND id=?').run(title,body,guild,data.id).changes)throw error(404,'invalid');
-      }else db.prepare('INSERT INTO web_panels VALUES(?,?,?,?)').run(uid(),guild,title,body);
-      audit(guild,session,'panel.save');
+      if(data.id!==undefined&&typeof data.id!=='string')throw error(400,'invalid');
+      let rules;
+      try{rules=validateRules(data.rules,roles.filter(r=>r.id!==guild),channels)}catch{throw error(400,'panelRulesInvalid')}
+      const id=data.id||uid();
+      db.exec('BEGIN');
+      try {
+        if(data.id){
+          if(!db.prepare('UPDATE web_panels SET title=?,body=? WHERE guild=? AND id=?').run(title,body,guild,id).changes)throw error(404,'invalid');
+        }else db.prepare('INSERT INTO web_panels VALUES(?,?,?,?)').run(id,guild,title,body);
+        db.prepare('INSERT INTO panel_rules VALUES(?,?) ON CONFLICT(id) DO UPDATE SET rules=excluded.rules').run(id,JSON.stringify(rules));
+        audit(guild,session,'panel.save');
+        db.exec('COMMIT');
+      }catch(e){db.exec('ROLLBACK');throw e}
       return send(200,{ok:true});
     }
     if(action==='publish'){
       if(!settings||!isId(data.channel)||!channels.some(c=>c.id===data.channel&&[0,5].includes(c.type)))throw error(400,'invalid');
-      const panel=db.prepare('SELECT title,body FROM web_panels WHERE guild=? AND id=?').get(guild,data.id);
+      const panel=typeof data.id==='string'&&panelFromDb(db,guild,data.id);
       if(!panel)throw error(404,'invalid');
       const msg=await discord('/channels/'+data.channel+'/messages',bot,{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({embeds:[{title:panel.title,description:panel.body,color:0xa079ec}],
-          components:[{type:1,components:[{type:2,style:1,custom_id:'v:open',label:locale==='en'?'Open ticket':'Abrir ticket'}]}],allowed_mentions:{parse:[]}})
+          components:[{type:1,components:[{type:2,style:1,custom_id:'v:open:'+panel.id,label:locale==='en'?'Open ticket':'Abrir ticket'}]}],allowed_mentions:{parse:[]}})
       });
       audit(guild,session,'panel.publish');
       return send(200,{ok:true,url:'https://discord.com/channels/'+guild+'/'+data.channel+'/'+msg.id});
