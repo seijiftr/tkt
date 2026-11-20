@@ -5,6 +5,7 @@ import {
   AttachmentBuilder, MessageFlags,
 } from 'discord.js';
 import { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import {findFaq,initFaq} from './faq.mjs';
 import {availability,initPanels,panelFromDb,revision} from './panels.mjs';
 
@@ -22,6 +23,9 @@ db.exec(`
   );
   CREATE UNIQUE INDEX IF NOT EXISTS one_open_ticket ON tickets(guild, owner) WHERE closed IS NULL;
   CREATE TABLE IF NOT EXISTS guild_locale (guild TEXT PRIMARY KEY, locale TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS ticket_close_requests (
+    channel TEXT PRIMARY KEY, id TEXT NOT NULL, requester TEXT NOT NULL, reason TEXT NOT NULL, message TEXT
+  );
   CREATE TABLE IF NOT EXISTS ticket_events (guild TEXT NOT NULL, channel TEXT NOT NULL, kind TEXT NOT NULL, time INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS event_report ON ticket_events(guild,kind,time);
   CREATE UNIQUE INDEX IF NOT EXISTS first_reply ON ticket_events(channel) WHERE kind='reply';
@@ -58,11 +62,16 @@ for (const [name, description] of [
   ['assumir','Assuma ou devolva o ticket à fila'], ['encerrar','Arquive o atendimento e gere o registro'],
   ['reabrir','Restaure o acesso do solicitante'], ['historico','Exporte a conversa em texto'],
   ['adicionar','Conceda acesso a um participante'], ['remover','Revogue o acesso de um participante'],
-  ['prioridade','Atualize a prioridade'],
+  ['prioridade','Atualize a prioridade'], ['info','Veja os detalhes do ticket'],
+  ['solicitar-fechamento','Peça ao solicitante para confirmar o encerramento'],
+  ['renomear','Altere o nome do canal do ticket'], ['mover','Mova o ticket para outra categoria'],
 ]) {
   tickets.addSubcommand(cmd => {
     cmd.setName(name).setDescription(description);
     if (name === 'adicionar' || name === 'remover') cmd.addUserOption(o => o.setName('membro').setDescription('Participante').setRequired(true));
+    if (name === 'solicitar-fechamento' || name === 'encerrar') cmd.addStringOption(o=>o.setName('motivo').setDescription('Motivo do encerramento').setMaxLength(200));
+    if (name === 'renomear') cmd.addStringOption(o=>o.setName('nome').setDescription('Novo nome do canal').setRequired(true).setMaxLength(100));
+    if (name === 'mover') cmd.addChannelOption(o=>o.setName('categoria').setDescription('Categoria de destino').addChannelTypes(ChannelType.GuildCategory).setRequired(true));
     if (name === 'prioridade') cmd.addStringOption(o => o.setName('nivel').setDescription('Prioridade').setRequired(true)
       .addChoices(...['baixa','normal','alta','urgente'].map(value => ({name:value,value}))));
     return cmd;
@@ -71,6 +80,10 @@ for (const [name, description] of [
 // Ratings are collected through a button sent to the requester in DM.
 const commandData = tickets.toJSON();
 const words = {
+  'solicitar-fechamento':['request-close','Ask the requester to confirm closure'],
+  motivo:['reason','Reason for closure'],info:['info','Show ticket details'],
+  renomear:['rename','Rename the ticket channel'],nome:['name','New channel name'],
+  mover:['move','Move the ticket to another category'],
   "configurar": [
     "configure",
     "Set the support role, ticket category and log channel"
@@ -245,7 +258,8 @@ function ticketActions(i,panel){
   const look=panel?.rules.presentation?.inside;
   const defaults=[
     ['v:assumir',translated(i,'Assumir / liberar','Claim / release'),ButtonStyle.Primary,look?.claim],
-    ['v:encerrar',translated(i,'Encerrar','Close'),ButtonStyle.Secondary,look?.close]
+    ['v:encerrar',translated(i,'Encerrar','Close'),ButtonStyle.Secondary,look?.close],
+    ['v:solicitar-fechamento',translated(i,'Solicitar encerramento','Request closure'),ButtonStyle.Secondary,look?.requestClose??{enabled:false}]
   ];
   const components=defaults.filter(([, , ,item])=>item?.enabled!==false).map(([id,label,style,item])=>{
     const button=new ButtonBuilder().setCustomId(id).setLabel(item?.label||label).setStyle(item?.style??style);
@@ -340,14 +354,49 @@ async function openTicket(i, config, panel=null) {
   });
 }
 
-async function manage(i, config, action) {
+const getCloseRequest=channel=>db.prepare('SELECT * FROM ticket_close_requests WHERE channel=?').get(channel);
+const removeCloseRequest=(channel,id)=>db.prepare('DELETE FROM ticket_close_requests WHERE channel=? AND id=?').run(channel,id);
+async function resolveCloseCard(i,request,content){
+  if(!request?.message)return;
+  await i.channel.messages.edit(request.message,{content,components:[],allowedMentions:allowed}).catch(()=>{});
+}
+async function requestClose(i,record){
+  if(getCloseRequest(record.channel))return i.editReply(translated(i,'Já há um pedido de encerramento pendente.','There is already a pending close request.'));
+  const id=randomUUID(),reason=i.isChatInputCommand()?i.options.getString('motivo')?.trim()||'':'';
+  db.prepare('INSERT INTO ticket_close_requests(channel,id,requester,reason) VALUES(?,?,?,?)').run(record.channel,id,i.user.id,reason);
+  try{
+    const notice=translated(i,'A equipe pediu o encerramento deste ticket','The team requested closure of this ticket');
+    const message=await i.channel.send({
+      content:'<@'+record.owner+'> '+notice+'.'+(reason?'\n'+translated(i,'Motivo','Reason')+': '+reason:''),
+      components:[buttons(
+        ['v:close-yes:'+id,translated(i,'Confirmar encerramento','Confirm closure'),ButtonStyle.Danger],
+        ['v:close-no:'+id,translated(i,'Manter aberto','Keep open'),ButtonStyle.Secondary]
+      )],allowedMentions:{parse:[],users:[record.owner]}
+    });
+    db.prepare('UPDATE ticket_close_requests SET message=? WHERE channel=? AND id=?').run(message.id,record.channel,id);
+  }catch(e){removeCloseRequest(record.channel,id);throw e}
+  return i.editReply(translated(i,'Pedido enviado ao solicitante.','Request sent to the ticket requester.'));
+}
+async function manage(i, config, action, requestId) {
   await i.deferReply({flags:MessageFlags.Ephemeral});
   return exclusive(i.channelId, async () => {
     const record = getTicket(i.channelId);
     if (!record || record.guild !== i.guildId) throw new Error('Este canal não é um ticket do TKT.');
     const staff = canManage(i,config);
-    if (!staff && !(i.user.id === record.owner && action === 'encerrar')) throw new Error(translated(i,'Ação reservada à equipe de suporte.',"Only support staff can do that."));
+    const owner=i.user.id===record.owner;
+    if (!staff && !(owner && ['encerrar','info','close-yes','close-no'].includes(action))) throw new Error(translated(i,'Ação reservada à equipe de suporte.',"Only support staff can do that."));
     const channel = i.channel;
+    if(action==='info'){
+      const lines=[
+        translated(i,'Área','Area')+' · '+record.area,
+        translated(i,'Solicitante','Requester')+' · <@'+record.owner+'>',
+        translated(i,'Status','Status')+' · '+(record.closed?translated(i,'Encerrado','Closed'):translated(i,'Aberto','Open')),
+        translated(i,'Abertura','Opened')+' · <t:'+Math.floor(record.opened/1000)+':f>',
+        translated(i,'Responsável','Assignee')+' · '+(record.agent?'<@'+record.agent+'>':'—'),
+        translated(i,'Prioridade','Priority')+' · '+record.priority
+      ];
+      return i.editReply({content:lines.join('\n'),allowedMentions:allowed});
+    }
     if (action === 'historico') return i.editReply({files:[await transcript(channel)]});
     if (action === 'reabrir') {
       if (!record.closed) throw new Error(translated(i,'Este ticket já está aberto.',"This ticket is already open."));
@@ -360,20 +409,37 @@ async function manage(i, config, action) {
       });
     }
     if (record.closed) throw new Error(translated(i,'Este atendimento já foi encerrado.',"This ticket is already closed."));
-    if (action === 'encerrar') {
+    if(action==='solicitar-fechamento')return requestClose(i,record);
+    const closeRequest=getCloseRequest(channel.id);
+    if(action==='close-yes'||action==='close-no'){
+      if(!closeRequest||closeRequest.id!==requestId)throw new Error(translated(i,'Esse pedido já foi resolvido.','This request has already been resolved.'));
+      if(action==='close-yes'&&!owner)throw new Error(translated(i,'Só o solicitante pode aceitar o pedido.','Only the ticket requester can accept.'));
+      if(action==='close-no'){
+        removeCloseRequest(channel.id,closeRequest.id);
+        const notice=translated(i,'Pedido cancelado. O ticket continua aberto.','Request cancelled. The ticket remains open.');
+        await resolveCloseCard(i,closeRequest,notice);
+        return i.editReply(notice);
+      }
+    }
+    if (action === 'encerrar'||action==='close-yes') {
+      const reason=action==='close-yes'?closeRequest.reason:i.isChatInputCommand()?i.options.getString('motivo')?.trim()||'':'';
       const log = await i.guild.channels.fetch(config.logs);
       if (log.id === channel.id || !log.isTextBased()) throw new Error('Configure um canal separado para os registros.');
       if (log.permissionsFor(i.guild.roles.everyone)?.has(Permission.ViewChannel)) throw new Error(translated(i,'O canal de registros precisa ser privado.',"The log channel must be private."));
       const file = await transcript(channel);
       await channel.permissionOverwrites.edit(record.owner,{ViewChannel:false,SendMessages:false},{type:1});
       try {
-        await log.send({content:'Ticket **'+channel.id+'** encerrado por <@'+i.user.id+'>.', files:[file],allowedMentions:allowed});
+        await log.send({content:'Ticket **'+channel.id+'** '+translated(i,'encerrado por','closed by')+' <@'+i.user.id+'>.'+(reason?'\n'+translated(i,'Motivo','Reason')+': '+reason:''), files:[file],allowedMentions:allowed});
       } catch (error) {
         await channel.permissionOverwrites.edit(record.owner,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true},{type:1}).catch(console.error);
         throw error;
       }
       const closedAt = Date.now();
       db.prepare('UPDATE tickets SET closed=? WHERE channel=?').run(closedAt,channel.id);
+      if(closeRequest){
+        removeCloseRequest(channel.id,closeRequest.id);
+        await resolveCloseCard(i,closeRequest,translated(i,'Ticket encerrado.','Ticket closed.'));
+      }
       const requester = await client.users.fetch(record.owner).catch(()=>null);
       if (requester) await requester.send({
         content:translated(i,'Como foi o atendimento em','How was your support experience in')+' **'+i.guild.name+'**?',
@@ -390,6 +456,18 @@ async function manage(i, config, action) {
       db.prepare('UPDATE tickets SET agent=? WHERE channel=?').run(agent,channel.id);
       await channel.send({content:agent ? 'Atendimento assumido por <@'+agent+'>.' : 'Ticket devolvido à fila.',allowedMentions:allowed});
       return i.editReply(agent ? translated(i,'Ticket assumido.','Ticket claimed.') : translated(i,'Ticket liberado.','Ticket released.'));
+    }
+    if(action==='renomear'){
+      const name=i.options.getString('nome',true).trim();
+      if(!name)throw new Error(translated(i,'Informe um nome válido.','Enter a valid name.'));
+      await channel.setName(name);
+      return i.editReply(translated(i,'Canal renomeado.','Channel renamed.'));
+    }
+    if(action==='mover'){
+      const category=i.options.getChannel('categoria',true);
+      if(category.guild.id!==i.guildId||category.type!==ChannelType.GuildCategory)throw new Error(translated(i,'Escolha uma categoria deste servidor.','Select a category in this server.'));
+      await channel.setParent(category.id,{lockPermissions:false});
+      return i.editReply(translated(i,'Ticket movido.','Ticket moved.'));
     }
     if (action === 'prioridade') {
       const level = i.options.getString('nivel',true);
@@ -506,7 +584,11 @@ client.on(Events.InteractionCreate, async i => {
       return await openTicket(i,config);
     }
     if (i.isChatInputCommand() && i.commandName === 'ticket') return await manage(i,config,i.options.getSubcommand());
-    if (i.isButton() && ['v:assumir','v:encerrar'].includes(i.customId)) return await manage(i,config,i.customId.slice(2));
+    if(i.isButton()&&/^v:close-(?:yes|no):/.test(i.customId)){
+      const [,action,id]=i.customId.split(':');
+      return await manage(i,config,action,id);
+    }
+    if (i.isButton() && ['v:assumir','v:encerrar','v:solicitar-fechamento'].includes(i.customId)) return await manage(i,config,i.customId.slice(2));
   } catch (error) {
     const message = error.constructor === Error && !error.code ? error.message : translated(i,'O Discord recusou a operação. Verifique as permissões do bot.',"Discord rejected the action. Check the bot permissions.");
     console.error(error);
