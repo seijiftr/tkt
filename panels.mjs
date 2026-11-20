@@ -44,6 +44,8 @@ export function validatePresentation(value,available,owner){
   if(!Array.isArray(fields)||fields.length>4)throw Error('Invalid embed fields');
   const blocks=p.blocks??[];
   if(!Array.isArray(blocks)||blocks.length>8)throw Error('Invalid component blocks');
+  const insideColor=p.inside?.color??'';
+  if(insideColor&&!/^#[a-f0-9]{6}$/i.test(insideColor))throw Error('Invalid ticket color');
   return {
     layout:p.layout==='v2'?'v2':'embed',navigation:p.navigation==='menu'?'menu':'buttons',
     links,color,title:limited(p.title??'',256),footer:limited(p.footer??'',256),
@@ -67,7 +69,9 @@ export function validatePresentation(value,available,owner){
       return {kind:'text',value};
     }),
     actionsFirst:p.actionsFirst===true,
-    inside:{layout:p.inside?.layout==='v2'?'v2':'embed',message:limited(p.inside?.message??'',900),claim:buttonConfig(p.inside?.claim),close:buttonConfig(p.inside?.close),requestClose:buttonConfig({enabled:false,...p.inside?.requestClose})}
+    inside:{layout:p.inside?.layout==='v2'?'v2':'embed',message:limited(p.inside?.message??'',900),
+      title:limited(p.inside?.title??'',160),footer:limited(p.inside?.footer??'',256),image:httpsUrl(p.inside?.image??''),
+      color:insideColor,actionsFirst:p.inside?.actionsFirst===true,claim:buttonConfig(p.inside?.claim),close:buttonConfig(p.inside?.close),requestClose:buttonConfig({enabled:false,...p.inside?.requestClose})}
   };
 }
 
