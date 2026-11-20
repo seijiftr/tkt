@@ -38,6 +38,7 @@ body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#10
 @media(max-width:950px){.ticket-board{grid-template-columns:repeat(auto-fit,minmax(205px,1fr))}}
 @media(max-width:450px){.queue-head{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.nav-marker,.ticket-tile{transition:none}.ticket-tile:hover,.ticket-tile:focus-within{transform:none}}
+.opening-preview{margin:14px 0}.ticket-message-preview{background:#1a1326;display:grid;gap:8px;padding:14px;border-radius:9px;border-left:4px solid var(--accent);overflow-wrap:anywhere}.ticket-message-preview p{white-space:pre-wrap}.preview-controls{display:flex;flex-wrap:wrap;gap:6px}.preview-controls button{opacity:1;color:#fff;background:#545464}.preview-controls [data-style="1"]{background:#535acc}.preview-controls [data-style="3"]{background:#21714b}.preview-controls [data-style="4"]{background:#a53448}.ticket-message-preview img{max-width:100%;max-height:220px;object-fit:contain;border-radius:7px;justify-self:start}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -66,6 +67,8 @@ Object.assign(lex['pt-BR'],{deletePanel:'Excluir painel',deletedPanel:'Painel ex
 Object.assign(lex.en,{deletePanel:'Delete panel',deletedPanel:'Panel deleted.',deletePanelConfirm:'Delete this panel and remove its links? Previously posted Discord messages stay in place.'});
 Object.assign(lex['pt-BR'],{board:'Quadro',table:'Lista',unassigned:'Na fila',inProgress:'Em atendimento',priority:'Prioridade',baixa:'Baixa',normal:'Normal',alta:'Alta',urgente:'Urgente'});
 Object.assign(lex.en,{board:'Board',table:'List',unassigned:'Unassigned',inProgress:'In progress',priority:'Priority',baixa:'Low',normal:'Normal',alta:'High',urgente:'Urgent'});
+Object.assign(lex['pt-BR'],{ticketColor:'Cor da mensagem do ticket',inheritColor:'Usar cor padrão',exampleTicket:'Exemplo de solicitação',ticketHeading:'Título da mensagem do ticket',ticketRequester:'Solicitante',ticketExampleUser:'@Membro'});
+Object.assign(lex.en,{ticketColor:'Ticket message color',inheritColor:'Use default color',exampleTicket:'Sample request',ticketHeading:'Ticket message title',ticketRequester:'Requester',ticketExampleUser:'@Member'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
@@ -370,7 +373,15 @@ function presentationEditor(panel,title,body){
   const inside=detail('internal');
   const insideMessage=make('textarea',look.inside?.message??'',{maxlength:900});
   const insideLayout=select([['embed',t('embed')],['v2',t('v2')]],look.inside?.layout??'embed');
-  inside.append(label(t('layout'),insideLayout),label(t('internalText'),insideMessage));
+  const ticket=look.inside??{};
+  const insideTitle=field(ticket.title,160),insideFooter=field(ticket.footer),insideImage=field(ticket.image,900,'url');
+  const inherited=check(!ticket.color),insideColor=field(ticket.color||look.color||'#9a62e7',7,'color'),insideFirst=check(ticket.actionsFirst);
+  const firstLabel=label(t('actionsFirst'),insideFirst);
+  inside.append(label(t('layout'),insideLayout),label(t('ticketHeading'),insideTitle),label(t('internalText'),insideMessage),
+    label(t('inheritColor'),inherited),label(t('ticketColor'),insideColor),label(t('image'),insideImage),label(t('footer'),insideFooter),firstLabel);
+  const insideCard=make('section','',{class:'area opening-preview'});
+  const insideCanvas=make('div','',{class:'ticket-message-preview'});
+  insideCard.append(make('h3',t('preview')),insideCanvas);inside.append(insideCard);
   const claim=button(inside,'claimButton',look.inside?.claim,true);
   const close=button(inside,'closeButton',look.inside?.close,true);
   const requestClose=button(inside,'requestCloseButton',look.inside?.requestClose??{enabled:false},true);
@@ -383,7 +394,8 @@ function presentationEditor(panel,title,body){
       footer:footer.value,image:image.value,placeholder:placeholder.value,description:description.value,opener:opener(),
       fields:fieldItems.map(x=>({name:x.name.value,value:x.value.value,inline:x.inline.checked})),
       blocks:blockItems.map(x=>({kind:x.kind.value,value:x.value.value})),actionsFirst:actionsFirst.checked,
-      inside:{layout:insideLayout.value,message:insideMessage.value,claim:claim(),close:close(),requestClose:requestClose()}};
+      inside:{layout:insideLayout.value,message:insideMessage.value,title:insideTitle.value,footer:insideFooter.value,image:insideImage.value,
+        color:inherited.checked?'':insideColor.value,actionsFirst:insideFirst.checked,claim:claim(),close:close(),requestClose:requestClose()}};
   }
   function preview(){
     const p=dataValue();
@@ -401,6 +413,28 @@ function presentationEditor(panel,title,body){
     else for(const l of labels)bar.append(make('button',l,{disabled:'',type:'button'}));
     canvas.replaceChildren(...(p.layout==='v2'&&p.actionsFirst?[bar,...message]:[...message,bar]));
   }
+  function previewInside(){
+    const p=dataValue(),v=p.inside;
+    insideColor.disabled=inherited.checked;firstLabel.hidden=v.layout!=='v2';
+    insideCanvas.style.borderColor=v.color||(v.layout==='v2'?p.color:'#9a62e7');
+    const parts=[make('strong',v.title||title.value||t('name'))];
+    if(v.message)parts.push(make('p',v.message));
+    parts.push(make('p',t('exampleTicket')),make('p',t('ticketRequester')+' · '+t('ticketExampleUser'),{class:'muted'}));
+    if(insideImage.validity.valid&&/^https:\/\//i.test(v.image)){
+      const image=make('img','',{src:v.image,alt:t('image'),referrerpolicy:'no-referrer'});
+      parts.push(image);
+    }
+    if(v.footer)parts.push(make('small',v.footer,{class:'muted'}));
+    const actions=make('div','',{class:'preview-controls'});
+    for(const [key,button] of [['claimButton',v.claim],['closeButton',v.close],['requestCloseButton',v.requestClose]]){
+      if(button.enabled)actions.append(make('button',[button.emoji,button.label||t(key)].filter(Boolean).join(' '),{type:'button',disabled:'','data-style':button.style}));
+    }
+    insideCanvas.replaceChildren(...(v.layout==='v2'&&v.actionsFirst?[actions,...parts]:[...parts,actions]));
+  }
+  inside.addEventListener('input',previewInside);
+  title.addEventListener('input',previewInside);
+  color.addEventListener('input',previewInside);
+  previewInside();
   formats.addEventListener('input',preview);
   title.addEventListener('input',preview);body.addEventListener('input',preview);
   preview();
