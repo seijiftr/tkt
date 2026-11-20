@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TKT Dashboard</title>
+<style>
+:root{color-scheme:dark;--bg:#130d20;--panel:#201531;--line:#44305a;--ink:#f8edff;--muted:#c1afd8;--accent:#c79bff}[hidden]{display:none!important}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}header{border-bottom:1px solid var(--line);background:#1c132b}.top,main{width:min(1140px,calc(100% - 38px));margin:auto}.top{display:flex;align-items:center;gap:14px;justify-content:space-between;min-height:68px}.brand{font-size:24px;font-weight:900;color:var(--accent);letter-spacing:-.07em}.top>div{display:flex;gap:10px;align-items:center;flex-wrap:wrap}main{padding:29px 0}h1,h2,h3,p{margin:0}h1{font-size:clamp(35px,6vw,62px);line-height:1;letter-spacing:-.055em;margin:15px 0}h2{font-size:24px;margin-bottom:12px}.muted,label{color:var(--muted)}nav{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 17px}button,input,textarea,select,.button{font:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 11px;background:#2b1b40;color:var(--ink)}button,.button{cursor:pointer;font-weight:700;text-decoration:none;display:inline-block}button[aria-pressed=true],.primary{background:var(--accent);color:#1e1131}button:disabled{opacity:.5;cursor:default}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}label{display:grid;gap:5px;margin-bottom:12px}input,textarea,select{min-width:0;max-width:100%}textarea{min-height:90px;resize:vertical}.area{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:19px;margin-bottom:12px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.grid strong{display:block;font-size:28px;color:var(--accent)}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.stack{display:grid;gap:9px;margin-top:12px}.pills{display:flex;gap:8px;flex-wrap:wrap}.row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:9px 0;overflow-wrap:anywhere}.row a,a{color:var(--accent)}.chart{display:flex;gap:4px;align-items:end;height:150px;border-bottom:1px solid var(--line);margin:12px 0}.col{flex:1;display:flex;align-items:end;height:100%;gap:2px}.bar{flex:1;border-radius:4px 4px 0 0;background:var(--accent)}.bar+ .bar{background:#8055c7}.status{display:block;min-height:24px;color:var(--accent);margin:10px 0}@media(max-width:680px){.grid{grid-template-columns:1fr 1fr}.split{grid-template-columns:1fr}}
+</style></head>
+<body>
+<header><div class="top"><strong class="brand">TKT</strong><div><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><span id="user"></span><button id="logout" hidden></button></div></div></header>
+<main>
+<h1 id="title"></h1><p id="sub" class="muted"></p>
+<div id="access" class="pills" style="margin-top:15px"></div>
+<output id="status" class="status" role="status"></output>
+<div id="workspace" hidden>
+<label id="serverLabel"><span id="serverTitle"></span><select id="server"></select></label>
+<nav id="nav" aria-label="Dashboard"></nav>
+<div id="content"></div>
+</div>
+</main>
+<script>
+const lex={
+'pt-BR':{title:'Central do servidor',sub:'Gerencie tickets, painéis e indicadores do seu Discord.',sign:'Entrar com Discord',demo:'Abrir demonstração',demoMode:'Demonstração · dados fictícios',leaveDemo:'Voltar ao login',logout:'Sair',server:'Servidor',home:'Visão geral',queue:'Fila de tickets',panels:'Painéis',settings:'Configuração',analytics:'Analytics',active:'Abertos agora',opened:'Total abertos',closed:'Total encerrados',rated:'Avaliações',open:'Aberto',done:'Encerrado',search:'Buscar por área',all:'Todos',noTickets:'Nenhum ticket encontrado.',noServers:'Nenhum servidor administrável encontrado.',loading:'Carregando…',add:'Novo painel',edit:'Editar',name:'Nome do painel',body:'Mensagem',save:'Salvar',publish:'Publicar no Discord',channel:'Canal de publicação',role:'Cargo de suporte',category:'Categoria dos tickets',logs:'Canal privado de registros',botLanguage:'Idioma padrão do bot',choose:'Selecione',saved:'Alteração salva.',sent:'Painel publicado.',visit:'Ver no Discord',empty:'Nenhum painel salvo.',flow:'Fluxo de tickets',period:'Período',days:'dias',chart:'Abertos em lilás e encerrados em roxo · UTC',sample:'Configure o OAuth2 para usar dados do servidor.',discord:'O Discord recusou o acesso. Confira a instalação e as permissões do TKT.',invalid:'Confira os dados informados.',forbidden:'Você precisa gerenciar este servidor.',login:'Entre novamente com Discord.',fail:'Não foi possível concluir a operação.',confirm:'Publicar este painel no canal selecionado?',recent:'Últimos 100 tickets',qopened:'Aberturas',qclosed:'Encerramentos',privateLogs:'O canal de registros deve ser privado.',firstClaim:'Até assumir',firstReply:'Primeira resposta',median:'Mediana',p90:'P90',noSample:'Sem amostra',faq:'FAQ',question:'Pergunta',answer:'Resposta',answerLang:'Idioma da resposta',published:'Disponível no Discord',draft:'Rascunho',newEntry:'Nova resposta',noFaq:'Nenhuma resposta cadastrada.',demand:'Demanda por horário (UTC)',ages:'Idade dos tickets abertos',reopened:'Reabertura após encerramento no período',ageNow:'Menos de 1 h',ageShort:'1 a 8 h',ageDay:'8 a 24 h',ageLong:'24 h ou mais',hour:'Hora UTC',weekday:'Dia da semana'},
+en:{title:'Server dashboard',sub:'Manage tickets, panels and metrics for your Discord server.',sign:'Sign in with Discord',demo:'Open demo',demoMode:'Demo · sample data',leaveDemo:'Back to sign-in',logout:'Sign out',server:'Server',home:'Overview',queue:'Ticket queue',panels:'Panels',settings:'Settings',analytics:'Analytics',active:'Open now',opened:'Total opened',closed:'Total closed',rated:'Ratings',open:'Open',done:'Closed',search:'Search by area',all:'All',noTickets:'No matching tickets.',noServers:'No manageable servers found.',loading:'Loading…',add:'New panel',edit:'Edit',name:'Panel name',body:'Message',save:'Save',publish:'Publish to Discord',channel:'Posting channel',role:'Support role',category:'Ticket category',logs:'Private log channel',botLanguage:'Default bot language',choose:'Select',saved:'Changes saved.',sent:'Panel published.',visit:'View on Discord',empty:'No saved panels.',flow:'Ticket flow',period:'Period',days:'days',chart:'Opened in lilac and closed in purple · UTC',sample:'Configure OAuth2 to access server data.',discord:'Discord denied access. Check your installation and TKT permissions.',invalid:'Check your input.',forbidden:'You need permission to manage this server.',login:'Sign in with Discord again.',fail:'Could not complete the operation.',confirm:'Publish this panel in the selected channel?',recent:'Latest 100 tickets',qopened:'Opened',qclosed:'Closed',privateLogs:'The log channel must be private.',firstClaim:'Time to claim',firstReply:'First reply',median:'Median',p90:'P90',noSample:'No sample',faq:'FAQ',question:'Question',answer:'Answer',answerLang:'Answer language',published:'Available in Discord',draft:'Draft',newEntry:'New answer',noFaq:'No answers yet.',demand:'Demand by hour (UTC)',ages:'Open ticket age',reopened:'Reopened after a close in this period',ageNow:'Under 1 h',ageShort:'1 to 8 h',ageDay:'8 to 24 h',ageLong:'24 h or more',hour:'UTC hour',weekday:'Day of week'}};
+const $=id=>document.getElementById(id);
+let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
+let account=null,ready=false,demo=false,current='home',guild='',data=null,panelId='',faqId='',days=7,request=0;
+const t=key=>lex[language][key]||lex[language].fail;
+const make=(tag,value,attrs={})=>{const e=document.createElement(tag);e.textContent=value??'';for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);return e};
+const click=(label,action,attrs={})=>{const b=make('button',label,{type:'button',...attrs});b.onclick=action;return b};
+const block=(title)=>{const e=make('section','',{class:'area'});e.append(make('h2',title));return e};
+const label=(name,field)=>{const e=make('label',name);e.append(field);return e};
+const select=(items,value,placeholder)=>{const e=make('select','');if(placeholder)e.append(make('option',placeholder,{value:''}));for(const [id,name] of items)e.append(make('option',name,{value:id}));e.value=value??'';return e};
+const status=(key)=>{$('status').textContent=key?t(key):''};
+const date=ms=>new Intl.DateTimeFormat(language,{dateStyle:'short',timeStyle:'short'}).format(ms);
+const staticSite=location.protocol==='file:'||location.hostname.endsWith('.github.io')||location.hostname.endsWith('.chatgpt.site');
+async function api(path,body){
+  const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const json=await response.json();
+  if(!response.ok)throw Error(json.error);
+  return json;
+}
+function sample(){
+  const now=Date.now();
+  const areas=language==='en'?['General help','Billing','Bug report']:['Suporte geral','Financeiro','Bugs'];
+  const items=Array.from({length:27},(_,i)=>({channel:'',area:areas[i%3],opened:now-(i*15+1)*3600000,closed:i%3===0?null:now-i*15*3600000,priority:'normal',rating:i%3===1?5:null}));
+  return {settings:{},roles:[],channels:[],locale:language,faqs:[],panels:[{id:'sample',title:areas[0],body:language==='en'?'Tell us how we can help.':'Conte como podemos ajudar.'}],queue:{items,totals:{active:9,opened:27,closed:18,rated:9}}};
+}
+function chrome(){
+  document.documentElement.lang=language;$('language').value=language;
+  $('title').textContent=t('title');$('sub').textContent=t('sub');$('serverTitle').textContent=t('server');
+  $('user').textContent=demo?t('demoMode'):account?.name||'';
+  $('logout').hidden=!account;$('logout').textContent=t('logout');
+  const a=ready?make('a',t('sign'),{class:'button primary',href:'/auth/login'}):null;
+  $('access').replaceChildren(...(!account&&!demo?[...(a?[a]:[]),click(t('demo'),()=>{demo=true;data=sample();status();chrome();render()})]:demo&&!staticSite?[click(t('leaveDemo'),()=>{demo=false;data=null;chrome();render()})]:[]));
+  $('workspace').hidden=!account&&!demo;
+  $('serverLabel').hidden=demo;
+  $('nav').replaceChildren(...['home','queue','panels','faq','settings','analytics'].map(k=>click(t(k),()=>{current=k;panelId='';faqId='';render()},{'aria-pressed':String(k===current)})));
+}
+async function loadGuild(){
+  const token=++request;data=null;render();status('loading');
+  try{const result=await api('/api/servers/'+guild);if(token!==request)return;data=result;status();render()}
+  catch(e){if(token===request)status(e.message)}
+}
+function metricCards(){
+  const cards=make('div','',{class:'grid'});
+  for(const k of ['active','opened','closed','rated']){
+    const card=make('article','',{class:'area'});card.append(make('p',t(k),{class:'muted'}),make('strong',data.queue.totals[k]));cards.append(card)
+  }
+  return cards;
+}
+function queuePage(){
+  const e=block(t('queue')), search=make('input','',{placeholder:t('search'),'aria-label':t('search')});
+  const filter=select([['all',t('all')],['open',t('open')],['closed',t('done')]],'all');
+  filter.setAttribute('aria-label',t('queue'));
+  const list=make('div','');
+  const show=()=>{
+    const items=data.queue.items.filter(q=>q.area.toLocaleLowerCase(language).includes(search.value.toLocaleLowerCase(language))&&(filter.value==='all'||(filter.value==='open')===(q.closed===null)));
+    list.replaceChildren(...(items.length?items.map(q=>{
+      const r=make('div','',{class:'row'});const title=q.channel?make('a',q.area,{href:'https://discord.com/channels/'+guild+'/'+q.channel,rel:'noopener noreferrer',target:'_blank'}):make('strong',q.area);
+      r.append(title,make('span',t(q.closed===null?'open':'done')+' · '+date(q.opened)));return r
+    }):[make('p',t('noTickets'))]));
+  };
+  search.oninput=show;filter.onchange=show;show();e.append(make('p',t('recent'),{class:'muted'}),search,filter,list);return e;
+}
+async function save(action,body){
+  const server=guild;
+  try{const result=await api('/api/servers/'+server+'/'+action,body);if(guild!==server)return;
+    if(action==='publish'){
+      const link=make('a',t('visit'),{href:result.url,target:'_blank',rel:'noopener noreferrer'});
+      $('status').replaceChildren(document.createTextNode(t('sent')+' '),link);
+    }else{panelId='';faqId='';await loadGuild();if(data)status('saved')}
+  }catch(e){status(e.message)}
+}
+function panelsPage(){
+  const layout=make('div','',{class:'split'}),list=block(t('panels')),form=block(t(panelId?'edit':'add'));
+  list.append(click(t('add'),()=>{panelId='';render()}));
+  if(!data.panels.length)list.append(make('p',t('empty')));
+  for(const panel of data.panels){const r=make('div','',{class:'row'});r.append(make('strong',panel.title),click(t('edit'),()=>{panelId=panel.id;render()}));list.append(r)}
+  const panel=data.panels.find(p=>p.id===panelId);
+  const title=make('input','',{maxlength:80,required:'',value:panel?.title||''});
+  const body=make('textarea',panel?.body||'',{maxlength:1000,required:''});
+  const editor=make('form','');editor.append(label(t('name'),title),label(t('body'),body),make('button',t('save'),{class:'primary'}));
+  editor.onsubmit=e=>{e.preventDefault();if(demo){const item={id:panelId||String(Date.now()),title:title.value,body:body.value};data.panels=data.panels.filter(p=>p.id!==item.id).concat(item);panelId=item.id;status('saved');render()}else save('panel',{id:panelId,title:title.value,body:body.value})};
+  form.append(editor);
+  if(panel&&!demo){const dest=select(data.channels.filter(c=>c.type!==4).map(c=>[c.id,'# '+c.name]),'',t('choose'));form.append(make('hr'),label(t('channel'),dest),click(t('publish'),()=>{if(dest.value&&confirm(t('confirm')))save('publish',{id:panelId,channel:dest.value})}));}
+  layout.append(list,form);return layout;
+}
+function faqPage(){
+  const layout=make('div','',{class:'split'}),list=block(t('faq')),editor=block(t(faqId?'edit':'newEntry'));
+  list.append(click(t('newEntry'),()=>{faqId='';render()}));
+  if(!data.faqs.length)list.append(make('p',t('noFaq')));
+  for(const entry of data.faqs){
+    const line=make('div','',{class:'row'});
+    const title=make('div','');
+    title.append(make('strong',entry.question),make('p',(entry.locale==='en'?'English':'Português (Brasil)')+' · '+t(entry.published?'published':'draft'),{class:'muted'}));
+    line.append(title,click(t('edit'),()=>{faqId=entry.id;render()}));
+    list.append(line);
+  }
+  const entry=data.faqs.find(x=>x.id===faqId);
+  const form=make('form','');
+  const question=make('input','',{required:'',maxlength:150,value:entry?.question||''});
+  const answer=make('textarea',entry?.answer||'',{required:'',maxlength:1500});
+  const locale=select([['pt-BR','Português (Brasil)'],['en','English']],entry?.locale||language);
+  const published=make('input','',{type:'checkbox'});published.checked=Boolean(entry?.published);
+  form.append(label(t('question'),question),label(t('answer'),answer),label(t('answerLang'),locale),label(t('published'),published),make('button',t('save'),{class:'primary'}));
+  form.onsubmit=e=>{
+    e.preventDefault();
+    const item={id:faqId,question:question.value,answer:answer.value,locale:locale.value,published:published.checked};
+    if(!demo){save('faq',item);return}
+    item.id ||= String(Date.now());
+    data.faqs=data.faqs.filter(x=>x.id!==item.id).concat(item);faqId=item.id;status('saved');render();
+  };
+  editor.append(form);layout.append(list,editor);return layout;
+}
+function settingsPage(){
+  const e=block(t('settings'));
+  if(demo){e.append(make('p',t('demoMode')));return e}
+  const s=data.settings||{};
+  const role=select(data.roles.map(r=>[r.id,r.name]),s.role,t('choose'));
+  const category=select(data.channels.filter(c=>c.type===4).map(c=>[c.id,c.name]),s.category,t('choose'));
+  const logs=select(data.channels.filter(c=>c.type===0).map(c=>[c.id,'# '+c.name]),s.logs,t('choose'));
+  const locale=select([['pt-BR','Português (Brasil)'],['en','English']],data.locale);
+  const form=make('form','');for(const [name,f] of [['role',role],['category',category],['logs',logs],['botLanguage',locale]]){f.required=true;form.append(label(t(name),f))}
+  form.append(make('button',t('save'),{class:'primary'}));form.onsubmit=ev=>{ev.preventDefault();save('settings',{role:role.value,category:category.value,logs:logs.value,locale:locale.value})};e.append(form);return e;
+}
+function extendedAnalytics(report) {
+  const view=make('div','',{class:'stack'});
+  const ages=block(t('ages'));
+  for (const [i,key] of ['ageNow','ageShort','ageDay','ageLong'].entries()){
+    const row=make('div','',{class:'row'});row.append(make('span',t(key)),make('strong',report.ages[i]));ages.append(row);
+  }
+  const reopened=block(t('reopened'));
+  const rate=report.eligible ? new Intl.NumberFormat(language,{style:'percent',maximumFractionDigits:1}).format(report.reopened/report.eligible) : t('noSample');
+  reopened.append(make('strong',rate),make('p',report.reopened+' / '+report.eligible,{class:'muted'}));
+  const demand=block(t('demand'));
+  const scroll=make('div','',{style:'overflow:auto'});
+  const grid=make('table','',{style:'border-spacing:3px;min-width:760px;text-align:center'});
+  const header=make('tr','');header.append(make('th',t('weekday'),{scope:'col'}));
+  for(let h=0;h<24;h++)header.append(make('th',String(h).padStart(2,'0'),{scope:'col',title:t('hour')+' '+h}));
+  const head=make('thead','');head.append(header);grid.append(head);
+  const body=make('tbody','');
+  const max=Math.max(1,...report.demand.flat());
+  const weekday=new Intl.DateTimeFormat(language,{weekday:'short',timeZone:'UTC'});
+  for(const [i,counts] of report.demand.entries()){
+    const row=make('tr','');
+    row.append(make('th',weekday.format(Date.UTC(2024,0,i+1)),{scope:'row'}));
+    for(const count of counts)row.append(make('td',count,{style:'background:rgba(148,91,225,'+(.08+.64*count/max)+');border-radius:4px'}));
+    body.append(row);
+  }
+  grid.append(body);scroll.append(grid);demand.append(scroll);
+  const side=make('div','',{class:'split'});side.append(ages,reopened);view.append(side,demand);return view;
+}
+function analyticsPage(){
+  const e=block(t('flow')), period=select([7,14,30].map(n=>[String(n),n+' '+t('days')]),String(days));
+  e.append(label(t('period'),period),make('p',t('chart'),{class:'muted'}));period.onchange=()=>{days=Number(period.value);render()};
+  const chart=make('div','',{class:'chart',role:'img','aria-label':t('chart')});
+  const dateLabel=make('p','',{class:'muted'});
+  e.append(chart,dateLabel);
+  const day=86400000,start=Math.floor(Date.now()/day)*day-(days-1)*day;
+  const show=(items,report)=>{
+    const bins=report??Array.from({length:days},(_,i)=>({d:new Date(start+i*day).toISOString().slice(0,10),a:0,b:0}));
+    for(const item of items){
+      const a=bins[Math.floor((item.opened-start)/day)];if(a)a.a++;
+      if(item.closed!==null){const b=bins[Math.floor((item.closed-start)/day)];if(b)b.b++}
+    }
+    const max=Math.max(1,...bins.flatMap(x=>[x.a,x.b]));
+    chart.replaceChildren(...bins.map(x=>{const g=make('div','',{class:'col',title:x.d+' · '+t('qopened')+' '+x.a+' · '+t('qclosed')+' '+x.b});for(const count of [x.a,x.b]){const bar=make('span','',{class:'bar'});bar.style.height=count/max*100+'%';g.append(bar)}return g}));
+    dateLabel.textContent=bins[0].d+' — '+bins.at(-1).d+' · '+t('qopened')+' '+bins.reduce((n,x)=>n+x.a,0)+' · '+t('qclosed')+' '+bins.reduce((n,x)=>n+x.b,0);
+  };
+  if(demo){
+    show(data.queue.items);
+    const demand=Array.from({length:7},()=>Array(24).fill(0)),ages=[0,0,0,0];
+    for(const item of data.queue.items){const date=new Date(item.opened);if(item.opened>=start)demand[(date.getUTCDay()+6)%7][date.getUTCHours()]++;if(item.closed===null){const hours=(Date.now()-item.opened)/3600000;ages[hours<1?0:hours<8?1:hours<24?2:3]++;}}
+    const eligible=data.queue.items.filter(q=>q.closed!==null&&q.closed>=start).length;
+    e.append(extendedAnalytics({demand,ages,eligible,reopened:Math.floor(eligible/5)}));
+  }
+  else api('/api/servers/'+guild+'/analytics?days='+days).then(result=>{if(e.isConnected){show([],result.report);e.append(extendedAnalytics(result));}if(e.isConnected)for(const [name,key] of [['firstClaim','claim'],['firstReply','reply']]){const x=result.latencies[key];const fmt=ms=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(ms/60000)+' min';e.append(make('p',t(name)+' · '+(x?t('median')+' '+fmt(x.median)+' · '+t('p90')+' '+fmt(x.p90)+' · n='+x.count:t('noSample'))))}}).catch(err=>{if(e.isConnected)dateLabel.textContent=t(err.message)});
+  return e;
+}
+function render(){
+  chrome();const content=$('content');content.replaceChildren();if(!data)return;
+  if(current==='home')content.append(metricCards(),queuePage());
+  if(current==='queue')content.append(queuePage());
+  if(current==='panels')content.append(panelsPage());
+  if(current==='faq')content.append(faqPage());
+  if(current==='settings')content.append(settingsPage());
+  if(current==='analytics')content.append(analyticsPage());
+}
+$('language').onchange=e=>{language=e.target.value;localStorage.setItem('tkt-language',language);status();render()};
+$('server').onchange=e=>{guild=e.target.value;panelId='';faqId='';loadGuild()};
+$('logout').onclick=async()=>{try{await api('/auth/logout',{});location.reload()}catch(e){status(e.message)}};
+async function init(){
+  chrome();
+  if(staticSite){demo=true;data=sample();render();return}
+  try{
+    const s=await api('/api/session');ready=s.ready;account=s.user;chrome();
+    if(!account){if(!ready||new URLSearchParams(location.search).has('error'))status('sample');return}
+    const servers=await api('/api/servers');
+    if(!servers.length){status('noServers');return}
+    $('server').replaceChildren(...servers.map(s=>make('option',s.name,{value:s.id})));
+    guild=servers[0].id;await loadGuild();
+  }catch(e){status(e.message)}
+}
+init();
+</script></body></html>
