@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import {initFaq} from './faq.mjs';
-import {initPanels,panelFromDb,validateRules} from './panels.mjs';
+import {initPanels,panelFromDb,panelMessage,validatePresentation,validateRules} from './panels.mjs';
 
 const { DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = process.env;
 const port = Number(process.env.DASHBOARD_PORT || 4310);
@@ -234,7 +234,11 @@ createServer(async(req,res)=>{
       const title=text(data.title,80,true),body=text(data.body,1000,true);
       if(data.id!==undefined&&typeof data.id!=='string')throw error(400,'invalid');
       let rules;
-      try{rules=validateRules(data.rules,roles.filter(r=>r.id!==guild),channels)}catch{throw error(400,'panelRulesInvalid')}
+      try{
+        rules=validateRules(data.rules,roles.filter(r=>r.id!==guild),channels);
+        const available=db.prepare('SELECT id FROM web_panels WHERE guild=?').all(guild).map(row=>row.id);
+        rules.presentation=validatePresentation(data.rules?.presentation,available,data.id);
+      }catch{throw error(400,'panelRulesInvalid')}
       const id=data.id||uid();
       db.exec('BEGIN');
       try {
@@ -251,10 +255,10 @@ createServer(async(req,res)=>{
       if(!settings||!isId(data.channel)||!channels.some(c=>c.id===data.channel&&[0,5].includes(c.type)))throw error(400,'invalid');
       const panel=typeof data.id==='string'&&panelFromDb(db,guild,data.id);
       if(!panel)throw error(404,'invalid');
+      const linked=(panel.rules.presentation?.links??[]).map(id=>panelFromDb(db,guild,id)).filter(Boolean);
       const msg=await discord('/channels/'+data.channel+'/messages',bot,{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({embeds:[{title:panel.title,description:panel.body,color:0xa079ec}],
-          components:[{type:1,components:[{type:2,style:1,custom_id:'v:open:'+panel.id,label:locale==='en'?'Open ticket':'Abrir ticket'}]}],allowed_mentions:{parse:[]}})
+        body:JSON.stringify(panelMessage(panel,linked,locale))
       });
       audit(guild,session,'panel.publish');
       return send(200,{ok:true,url:'https://discord.com/channels/'+guild+'/'+data.channel+'/'+msg.id});
