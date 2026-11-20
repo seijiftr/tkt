@@ -1,11 +1,12 @@
 import {
   Client, Events, GatewayIntentBits, PermissionFlagsBits as Permission,
   ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
-  ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder,
+  ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, LabelBuilder, StringSelectMenuBuilder,
   AttachmentBuilder, MessageFlags,
 } from 'discord.js';
 import { DatabaseSync } from 'node:sqlite';
 import {findFaq,initFaq} from './faq.mjs';
+import {availability,initPanels,panelFromDb,revision} from './panels.mjs';
 
 const { DISCORD_TOKEN, DISCORD_GUILD_ID, DATABASE_PATH = 'tkt.sqlite' } = process.env;
 if (!DISCORD_TOKEN) throw new Error('Defina DISCORD_TOKEN no arquivo .env.');
@@ -32,6 +33,7 @@ db.exec(`
   BEGIN INSERT INTO ticket_events VALUES(new.guild,new.channel,'reopen',CAST(unixepoch('subsec')*1000 AS INTEGER)); END;
 `);
 initFaq(db);
+initPanels(db);
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 const settings = guild => db.prepare('SELECT * FROM settings WHERE guild=?').get(guild);
 const getTicket = channel => db.prepare('SELECT * FROM tickets WHERE channel=?').get(channel);
@@ -158,7 +160,55 @@ async function exclusive(key, work) {
   try { return await work(); } finally { pending.delete(key); }
 }
 const privateReply = (i, content) => i.reply({ content, flags: MessageFlags.Ephemeral });
-const canManage = (i, config) => i.memberPermissions?.has(Permission.ManageGuild) || i.member?.roles?.cache?.has(config.role);
+const panelRole = channel => db.prepare('SELECT role FROM ticket_panel_routes WHERE channel=?').get(channel)?.role;
+const canManage = (i, config) => i.memberPermissions?.has(Permission.ManageGuild) || [config.role,panelRole(i.channelId)].some(role=>role&&i.member?.roles?.cache?.has(role));
+function checkAvailability(i,panel){
+  const schedule=panel.rules.schedule;
+  const bypass=schedule?.bypass&&i.member?.roles?.cache?.has(schedule.bypass);
+  const state=availability(schedule,bypass);
+  const warning={
+    closed:translated(i,'Estamos fora do horário de atendimento. A resposta pode demorar.','Support is outside business hours. A reply may take longer.'),
+    reduced:translated(i,'Estamos com atendimento reduzido.','Support is operating at reduced capacity.'),
+    urgent:translated(i,'Neste horário, a equipe prioriza casos urgentes.','Support is prioritizing urgent cases at this time.')
+  }[state]??'';
+  if(state==='closed'&&schedule.outside==='block')throw new Error(translated(i,'Este painel abre tickets apenas durante o horário de atendimento.','This panel accepts tickets only during business hours.'));
+  return warning;
+}
+function panelModal(i,panel){
+  const form=panel.rules.questions??[];
+  const title=(translated(i,'Abrir','Open')+' · '+panel.title).slice(0,45);
+  const modal=new ModalBuilder().setCustomId('v:form:'+panel.id+':'+revision(panel)).setTitle(title);
+  if(!form.length){
+    const text=new TextInputBuilder().setCustomId('description').setStyle(TextInputStyle.Paragraph).setMaxLength(1800).setRequired(true);
+    return modal.addLabelComponents(new LabelBuilder().setLabel(translated(i,'Descreva seu pedido','Describe your request')).setTextInputComponent(text));
+  }
+  for(const [index,question] of form.entries()){
+    const label=new LabelBuilder().setLabel(question.label);
+    const id='q'+index;
+    if(question.kind==='choice'){
+      const menu=new StringSelectMenuBuilder().setCustomId(id).setRequired(question.required).setMinValues(question.required?1:0).setMaxValues(1)
+        .addOptions(question.options.map((option,n)=>({label:option,value:String(n)})));
+      label.setStringSelectMenuComponent(menu);
+    }else{
+      const input=new TextInputBuilder().setCustomId(id).setStyle(question.kind==='short'?TextInputStyle.Short:TextInputStyle.Paragraph)
+        .setMaxLength(question.kind==='short'?220:950).setRequired(question.required);
+      label.setTextInputComponent(input);
+    }
+    modal.addLabelComponents(label);
+  }
+  return modal;
+}
+function panelAnswers(i,panel){
+  return (panel.rules.questions??[]).flatMap((question,index)=>{
+    const id='q'+index;
+    let value='';
+    if(i.fields.fields.has(id)){
+      value=question.kind==='choice'?(question.options[Number(i.fields.getStringSelectValues(id)[0])]??''):i.fields.getTextInputValue(id).trim();
+    }
+    if(question.required&&!value)throw new Error(translated(i,'Preencha as perguntas obrigatórias.','Answer the required questions.'));
+    return value?[{name:question.label,value}]:[];
+  });
+}
 const buttons = (...items) => new ActionRowBuilder().addComponents(items.map(([id,label,style]) =>
   new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style)));
 const card = (title, description) => new EmbedBuilder().setColor(0x9a62e7).setTitle(title).setDescription(description);
@@ -176,14 +226,14 @@ async function transcript(channel) {
   }
   const lines = pages.flat().reverse().map(message => {
     const files = [...message.attachments.values()].map(file => file.url).join(' ');
-    const embeds = message.embeds.map(embed => [embed.title, embed.description].filter(Boolean).join('\n')).join('\n');
+    const embeds = message.embeds.map(embed => [embed.title, embed.description, ...embed.fields.map(f=>f.name+': '+f.value)].filter(Boolean).join('\n')).join('\n');
     return '[' + message.createdAt.toISOString() + '] ' + message.author.username + ' (' + message.author.id + ')\n' +
       [message.content, embeds, files].filter(Boolean).join('\n');
   });
   return new AttachmentBuilder(Buffer.from(lines.join('\n\n')), {name:'ticket-' + channel.id + '.txt'});
 }
 
-async function openTicket(i, config) {
+async function openTicket(i, config, panel=null) {
   return exclusive('open:' + i.guildId + ':' + i.user.id, async () => {
     const existing = db.prepare('SELECT channel FROM tickets WHERE guild=? AND owner=? AND closed IS NULL').get(i.guildId,i.user.id);
     if (existing) {
@@ -194,15 +244,20 @@ async function openTicket(i, config) {
       if (current) return i.editReply(translated(i,'Você já tem um ticket aberto em','You already have an open ticket in')+' <#'+existing.channel+'>.');
       db.prepare('UPDATE tickets SET closed=? WHERE channel=?').run(Date.now(),existing.channel);
     }
-    const area = i.message?.embeds[0]?.title?.trim();
-    const description = i.fields.getTextInputValue('description').trim();
-    if (!area || !description) throw new Error('Preencha a área e a descrição.');
+    const area=panel?.title??i.message?.embeds[0]?.title?.trim();
+    const warning=panel?checkAvailability(i,panel):'';
+    const hasForm=Boolean(panel?.rules.questions?.length);
+    const description=hasForm?translated(i,'Respostas do formulário','Form responses'):i.fields.getTextInputValue('description').trim();
+    if(!area||!description)throw new Error(translated(i,'Preencha a área e a descrição.','Enter the area and description.'));
+    const answers=hasForm?panelAnswers(i,panel):[];
+    const category=panel?.rules.category||config.category;
+    const supportRoles=[...new Set([config.role,panel?.rules.role].filter(Boolean))];
     const name = ('ticket-' + i.user.username).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0,85);
     const channel = await i.guild.channels.create({
-      name, type: ChannelType.GuildText, parent:config.category,
+      name, type: ChannelType.GuildText, parent:category,
       permissionOverwrites:[
         {id:i.guildId, type:0, deny:[Permission.ViewChannel]},
-        {id:config.role, type:0, allow:[Permission.ViewChannel,Permission.SendMessages,Permission.ReadMessageHistory]},
+        ...supportRoles.map(id=>({id,type:0,allow:[Permission.ViewChannel,Permission.SendMessages,Permission.ReadMessageHistory]})),
         {id:i.user.id, type:1, allow:[Permission.ViewChannel,Permission.SendMessages,Permission.ReadMessageHistory]},
         {id:client.user.id, type:1, allow:[Permission.ViewChannel,Permission.SendMessages,Permission.ReadMessageHistory]},
       ],
@@ -210,14 +265,17 @@ async function openTicket(i, config) {
     try {
       db.prepare('INSERT INTO tickets(channel,guild,owner,area,opened) VALUES(?,?,?,?,?)')
         .run(channel.id,i.guildId,i.user.id,area,Date.now());
+      if(panel?.rules.role)db.prepare('INSERT INTO ticket_panel_routes VALUES(?,?)').run(channel.id,panel.rules.role);
       await channel.send({
-        embeds:[card(area,description).addFields({name:translated(i,'Solicitante','Requester'),value:'<@'+i.user.id+'>'})],
+        ...(warning?{content:warning}:{}),
+        embeds:[card(area,description).addFields({name:translated(i,'Solicitante','Requester'),value:'<@'+i.user.id+'>'},...answers)],
         allowedMentions:allowed, components:[buttons(
           ['v:assumir',translated(i,'Assumir / liberar','Claim / release'),ButtonStyle.Primary],
           ['v:encerrar',translated(i,'Encerrar','Close'),ButtonStyle.Secondary],
         )],
       });
     } catch (error) {
+      db.prepare('DELETE FROM ticket_panel_routes WHERE channel=?').run(channel.id);
       db.prepare('DELETE FROM tickets WHERE channel=?').run(channel.id);
       await channel.delete('Falha na abertura do ticket').catch(console.error);
       throw error;
@@ -359,6 +417,20 @@ client.on(Events.InteractionCreate, async i => {
       const row = db.prepare('SELECT COUNT(*) total, COUNT(closed) closed, AVG(rating) average FROM tickets WHERE guild=?').get(i.guildId);
       return await privateReply(i,'Abertos **'+(row.total-row.closed)+'** · Encerrados **'+row.closed+'** · Avaliação média **'+(row.average?.toFixed(1)??'—')+'**');
     }
+    if(i.isButton()&&i.customId.startsWith('v:open:')){
+      if(!config)return await privateReply(i,translated(i,'A central ainda não foi configurada.','The support desk is not configured yet.'));
+      const panel=panelFromDb(db,i.guildId,i.customId.slice(7));
+      if(!panel)return await privateReply(i,translated(i,'Este painel está indisponível.','This panel is unavailable.'));
+      checkAvailability(i,panel);
+      return await i.showModal(panelModal(i,panel));
+    }
+    if(i.isModalSubmit()&&i.customId.startsWith('v:form:')){
+      const [, ,id,version]=i.customId.split(':');
+      const panel=config&&panelFromDb(db,i.guildId,id);
+      if(!panel||revision(panel)!==version)return await privateReply(i,translated(i,'O formulário mudou. Abra o painel novamente.','The form has changed. Open the panel again.'));
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      return await openTicket(i,config,panel);
+    }
     if (i.isButton() && i.customId === 'v:open') {
       if (!config) return await privateReply(i,translated(i,'A central ainda não foi configurada.',"The support desk is not configured yet."));
       const area = i.message.embeds[0]?.title;
@@ -385,7 +457,7 @@ client.on(Events.MessageCreate,message=>{
   if(!message.guildId||message.author.bot||!message.member)return;
   try{
     const config=settings(message.guildId);
-    if(!config||!message.member.permissions.has(Permission.ManageGuild)&&!message.member.roles.cache.has(config.role))return;
+    if(!config||!message.member.permissions.has(Permission.ManageGuild)&&![config.role,panelRole(message.channelId)].some(role=>role&&message.member.roles.cache.has(role)))return;
     const ticket=getTicket(message.channelId);
     if(!ticket||ticket.closed!==null||message.author.id===ticket.owner||message.createdTimestamp<ticket.opened)return;
     db.prepare("INSERT OR IGNORE INTO ticket_events VALUES(?,?, 'reply', ?)").run(message.guildId,message.channelId,message.createdTimestamp);
