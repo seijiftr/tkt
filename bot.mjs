@@ -26,6 +26,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS ticket_close_requests (
     channel TEXT PRIMARY KEY, id TEXT NOT NULL, requester TEXT NOT NULL, reason TEXT NOT NULL, message TEXT
   );
+  CREATE TABLE IF NOT EXISTS ticket_notes (
+    id INTEGER PRIMARY KEY, channel TEXT NOT NULL, author TEXT NOT NULL, body TEXT NOT NULL, created INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS ticket_notes_channel ON ticket_notes(channel,id);
   CREATE TABLE IF NOT EXISTS ticket_events (guild TEXT NOT NULL, channel TEXT NOT NULL, kind TEXT NOT NULL, time INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS event_report ON ticket_events(guild,kind,time);
   CREATE UNIQUE INDEX IF NOT EXISTS first_reply ON ticket_events(channel) WHERE kind='reply';
@@ -64,14 +68,16 @@ for (const [name, description] of [
   ['adicionar','Conceda acesso a um participante'], ['remover','Revogue o acesso de um participante'],
   ['prioridade','Atualize a prioridade'], ['info','Veja os detalhes do ticket'],
   ['solicitar-fechamento','Peça ao solicitante para confirmar o encerramento'],
+  ['transferir','Atribua o ticket a outro atendente'], ['anotar','Adicione uma nota privada da equipe'], ['notas','Veja as notas privadas da equipe'],
   ['renomear','Altere o nome do canal do ticket'], ['mover','Mova o ticket para outra categoria'],
 ]) {
   tickets.addSubcommand(cmd => {
     cmd.setName(name).setDescription(description);
-    if (name === 'adicionar' || name === 'remover') cmd.addUserOption(o => o.setName('membro').setDescription('Participante').setRequired(true));
+    if (['adicionar','remover','transferir'].includes(name)) cmd.addUserOption(o => o.setName('membro').setDescription('Participante').setRequired(true));
     if (name === 'solicitar-fechamento' || name === 'encerrar') cmd.addStringOption(o=>o.setName('motivo').setDescription('Motivo do encerramento').setMaxLength(200));
     if (name === 'renomear') cmd.addStringOption(o=>o.setName('nome').setDescription('Novo nome do canal').setRequired(true).setMaxLength(100));
     if (name === 'mover') cmd.addChannelOption(o=>o.setName('categoria').setDescription('Categoria de destino').addChannelTypes(ChannelType.GuildCategory).setRequired(true));
+    if (name === 'anotar') cmd.addStringOption(o=>o.setName('nota').setDescription('Texto da nota privada').setRequired(true).setMaxLength(600));
     if (name === 'prioridade') cmd.addStringOption(o => o.setName('nivel').setDescription('Prioridade').setRequired(true)
       .addChoices(...['baixa','normal','alta','urgente'].map(value => ({name:value,value}))));
     return cmd;
@@ -83,6 +89,7 @@ const words = {
   'solicitar-fechamento':['request-close','Ask the requester to confirm closure'],
   motivo:['reason','Reason for closure'],info:['info','Show ticket details'],
   renomear:['rename','Rename the ticket channel'],nome:['name','New channel name'],
+  transferir:['transfer','Assign the ticket to another staff member'],anotar:['add-note','Add a private staff note'],notas:['notes','Show private staff notes'],nota:['note','Private note text'],
   mover:['move','Move the ticket to another category'],
   "configurar": [
     "configure",
@@ -408,6 +415,17 @@ async function manage(i, config, action, requestId) {
         return i.editReply(translated(i,'Ticket reaberto.',"Ticket reopened."));
       });
     }
+    if(action==='notas'){
+      const rows=db.prepare('SELECT author,body,created FROM ticket_notes WHERE channel=? ORDER BY id DESC LIMIT 3').all(channel.id);
+      if(!rows.length)return i.editReply(translated(i,'Sem notas internas.','No private notes.'));
+      return i.editReply({content:rows.map(row=>'<@'+row.author+'> · <t:'+Math.floor(row.created/1000)+':f>\n'+row.body).join('\n\n'),allowedMentions:allowed});
+    }
+    if(action==='anotar'){
+      const note=i.options.getString('nota',true).trim();
+      if(!note)throw new Error(translated(i,'Escreva uma nota.','Enter a note.'));
+      db.prepare('INSERT INTO ticket_notes(channel,author,body,created) VALUES(?,?,?,?)').run(channel.id,i.user.id,note,Date.now());
+      return i.editReply(translated(i,'Nota privada salva.','Private note saved.'));
+    }
     if (record.closed) throw new Error(translated(i,'Este atendimento já foi encerrado.',"This ticket is already closed."));
     if(action==='solicitar-fechamento')return requestClose(i,record);
     const closeRequest=getCloseRequest(channel.id);
@@ -456,6 +474,19 @@ async function manage(i, config, action, requestId) {
       db.prepare('UPDATE tickets SET agent=? WHERE channel=?').run(agent,channel.id);
       await channel.send({content:agent ? 'Atendimento assumido por <@'+agent+'>.' : 'Ticket devolvido à fila.',allowedMentions:allowed});
       return i.editReply(agent ? translated(i,'Ticket assumido.','Ticket claimed.') : translated(i,'Ticket liberado.','Ticket released.'));
+    }
+    if(action==='transferir'){
+      const admin=i.memberPermissions?.has(Permission.ManageGuild);
+      if(record.agent&&record.agent!==i.user.id&&!admin)
+        throw new Error(translated(i,'Apenas o responsável ou um administrador pode transferir este ticket.','Only the assignee or an administrator can transfer this ticket.'));
+      const target=await i.guild.members.fetch(i.options.getUser('membro',true).id);
+      const staffRoles=[config.role,panelRole(channel.id)].filter(Boolean);
+      if(target.user.bot||!channel.permissionsFor(target)?.has(Permission.ViewChannel)||
+        !(target.permissions.has(Permission.ManageGuild)||staffRoles.some(role=>target.roles.cache.has(role))))
+        throw new Error(translated(i,'Escolha um atendente com acesso ao ticket.','Choose a staff member who can access the ticket.'));
+      db.prepare('UPDATE tickets SET agent=? WHERE channel=?').run(target.id,channel.id);
+      await channel.send({content:translated(i,'Atendimento transferido para','Ticket transferred to')+' <@'+target.id+'>.',allowedMentions:allowed});
+      return i.editReply(translated(i,'Responsável atualizado.','Assignee updated.'));
     }
     if(action==='renomear'){
       const name=i.options.getString('nome',true).trim();
