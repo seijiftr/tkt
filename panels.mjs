@@ -71,7 +71,7 @@ export function validatePresentation(value,available,owner){
     actionsFirst:p.actionsFirst===true,
     inside:{layout:p.inside?.layout==='v2'?'v2':'embed',message:limited(p.inside?.message??'',900),
       title:limited(p.inside?.title??'',160),footer:limited(p.inside?.footer??'',256),image:httpsUrl(p.inside?.image??''),
-      color:insideColor,actionsFirst:p.inside?.actionsFirst===true,claim:buttonConfig(p.inside?.claim),close:buttonConfig(p.inside?.close),requestClose:buttonConfig({enabled:false,...p.inside?.requestClose})}
+      color:insideColor,actionsFirst:p.inside?.actionsFirst===true,claim:buttonConfig(p.inside?.claim),rename:buttonConfig(p.inside?.rename),close:buttonConfig(p.inside?.close),requestClose:buttonConfig({enabled:false,...p.inside?.requestClose})}
   };
 }
 
