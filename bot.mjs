@@ -188,6 +188,7 @@ function panelRoles(channel){
 }
 const canManage = (i, config) => i.memberPermissions?.has(Permission.ManageGuild) || [config.role,...panelRoles(i.channelId)].some(role=>role&&i.member?.roles?.cache?.has(role));
 function checkAvailability(i,panel){
+  if(panel.rules.enabled===false)throw Error(translated(i,'Este painel está pausado.','This panel is paused.'));
   const schedule=panel.rules.schedule;
   const bypass=schedule?.bypass&&i.member?.roles?.cache?.has(schedule.bypass);
   const state=availability(schedule,bypass);
@@ -445,9 +446,11 @@ async function openTicket(i, config, panel=null) {
     try {
       db.prepare('INSERT INTO tickets(channel,guild,owner,area,opened) VALUES(?,?,?,?,?)')
         .run(channel.id,i.guildId,i.user.id,area,Date.now());
+      if(panel)db.prepare('INSERT INTO ticket_panel_sources VALUES(?,?)').run(channel.id,panel.id);
       if(selectedRoles.length)db.prepare('INSERT INTO ticket_panel_routes VALUES(?,?)').run(channel.id,JSON.stringify(selectedRoles));
       await channel.send(firstTicketMessage(i,area,description,answers,warning,panel,files));
     } catch (error) {
+      db.prepare('DELETE FROM ticket_panel_sources WHERE channel=?').run(channel.id);
       db.prepare('DELETE FROM ticket_panel_routes WHERE channel=?').run(channel.id);
       db.prepare('DELETE FROM tickets WHERE channel=?').run(channel.id);
       await channel.delete('Falha na abertura do ticket').catch(console.error);
