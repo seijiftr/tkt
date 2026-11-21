@@ -14,6 +14,7 @@ db.exec(`
   PRAGMA busy_timeout=5000;
   CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, role TEXT NOT NULL, category TEXT NOT NULL, logs TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS guild_locale (guild TEXT PRIMARY KEY, locale TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS ticket_transcripts (id TEXT PRIMARY KEY, channel TEXT NOT NULL UNIQUE, guild TEXT NOT NULL, owner TEXT NOT NULL, html BLOB NOT NULL);
   CREATE TABLE IF NOT EXISTS web_audit (guild TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, occurred INTEGER NOT NULL);
 `);
 initFaq(db);
@@ -25,6 +26,7 @@ timer.unref();
 const uid=()=>randomBytes(24).toString('hex');
 const isId=v=>typeof v==='string' && /^[0-9]{17,20}$/.test(v);
 const manager=g=>g.owner || (BigInt(g.permissions ?? '0')&40n)!==0n;
+const transcriptPath=/^\/transcripts\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const callback=origin.origin+'/auth/callback';
 const cookie=(key,value,age)=>key+'='+value+'; Path=/; HttpOnly; SameSite=Lax; Max-Age='+age+(origin.protocol==='https:'?'; Secure':'');
 const authReady=Boolean(DISCORD_TOKEN&&DISCORD_CLIENT_ID&&DISCORD_CLIENT_SECRET);
@@ -59,7 +61,7 @@ function queue(guild) {
   if (!exists) return {totals:{opened:0,closed:0,active:0,rated:0},items:[]};
   return {
     totals:db.prepare('SELECT COUNT(*) opened, COUNT(closed) closed, COUNT(*)-COUNT(closed) active, COUNT(rating) rated FROM tickets WHERE guild=?').get(guild),
-    items:db.prepare('SELECT channel, area, opened, closed, priority, rating, agent IS NOT NULL AS assigned FROM tickets WHERE guild=? ORDER BY opened DESC LIMIT 100').all(guild)
+    items:db.prepare('SELECT t.channel, t.area, t.opened, t.closed, t.priority, t.rating, t.agent IS NOT NULL AS assigned, tr.id AS transcript FROM tickets t LEFT JOIN ticket_transcripts tr ON tr.channel=t.channel AND tr.guild=t.guild WHERE t.guild=? ORDER BY t.opened DESC LIMIT 100').all(guild)
   };
 }
 createServer(async(req,res)=>{
@@ -78,7 +80,8 @@ createServer(async(req,res)=>{
     if(method==='GET' && url.pathname==='/auth/login'){
       if(!authReady) return redirect('/?error=oauth');
       const state=uid();
-      states.set(state,{until:Date.now()+300000});
+      const next=url.searchParams.get('next')||'';
+      states.set(state,{until:Date.now()+300000,next:transcriptPath.test(next)?next:'/'});
       const params=new URLSearchParams({client_id:DISCORD_CLIENT_ID,redirect_uri:callback,response_type:'code',scope:'identify guilds',state});
       return redirect('https://discord.com/oauth2/authorize?'+params,[cookie('tkt_state',state,300)]);
     }
@@ -110,13 +113,27 @@ createServer(async(req,res)=>{
       const id=uid(), age=Math.min(token.expires_in,28800);
       sessions.delete(cookies.tkt_session);
       sessions.set(id,{user:{id:user.id,name:user.global_name||user.username},bearer,until:Date.now()+age*1000});
-      return redirect('/',[cookie('tkt_state','',0),cookie('tkt_session',id,age)]);
+      return redirect(attempt.next,[cookie('tkt_state','',0),cookie('tkt_session',id,age)]);
     }
     if(method==='POST' && url.pathname==='/auth/logout'){
       sessions.delete(cookies.tkt_session);
       return send(200,{ok:true},{'Set-Cookie':cookie('tkt_session','',0)});
     }
     if(method==='GET' && url.pathname==='/api/session')return send(200,{ready:authReady,user:session?.until>Date.now()?session.user:null});
+    if(method==='GET'&&transcriptPath.test(url.pathname)){
+      if(!session||session.until<=Date.now())return redirect('/auth/login?next='+encodeURIComponent(url.pathname));
+      const id=url.pathname.split('/').at(-1);
+      const meta=db.prepare('SELECT guild,owner FROM ticket_transcripts WHERE id=?').get(id);
+      if(meta){
+        const canRead=meta.owner===session.user.id||
+          (await discord('/users/@me/guilds?limit=200',session.bearer)).some(g=>g.id===meta.guild&&manager(g));
+        if(canRead){
+          const {html}=db.prepare('SELECT html FROM ticket_transcripts WHERE id=?').get(id);
+          return send(200,Buffer.from(html),{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"sandbox allow-popups allow-popups-to-escape-sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src https://cdn.discordapp.com https://media.discordapp.net"});
+        }
+      }
+      throw error(404,'invalid');
+    }
     if(!session||session.until<=Date.now())throw error(401,'login');
     if(!session.guilds || session.guildsUntil<=Date.now()){
       session.guilds=(await discord('/users/@me/guilds?limit=200',session.bearer)).filter(manager);
