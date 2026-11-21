@@ -127,6 +127,8 @@ Object.assign(lex['pt-BR'],{panelSearch:'Buscar painel pelo nome',panelState:'Es
 Object.assign(lex.en,{panelSearch:'Search panels by name',panelState:'Panel status',panelEnabled:'Accept new tickets',panelActive:'Active',panelPaused:'Paused',panelNoResults:'No panels match your search.',panelNotPublished:'No publication recorded',editMessage:'Edit content',editMedia:'Edit appearance',editOptions:'Edit options'});
 Object.assign(lex['pt-BR'],{openingTab:'Embed',insideTab:'Mensagens',formTab:'Formulários',rolesTab:'Cargos',scheduleTab:'Disponibilidade',loggingTab:'Registros',pinOpening:'Fixar mensagem inicial',naming:'Nome dos canais',nameArea:'Nome do painel',nameMember:'Painel e usuário',requiredRoles:'Cargos exigidos',blockedRoles:'Cargos bloqueados',allRoles:'Exigir todos os cargos selecionados',accountDays:'Idade mínima da conta em dias',memberDays:'Tempo mínimo no servidor em dias',panelLogs:'Canal privado de registros do painel',panelLogNote:'O canal recebe a transcrição dos novos tickets deste painel. Sem seleção, vale o canal padrão do servidor.',resetPanel:'Descartar alterações'});
 Object.assign(lex.en,{openingTab:'Embed',insideTab:'Messages',formTab:'Forms',rolesTab:'Roles',scheduleTab:'Availability',loggingTab:'Logging',pinOpening:'Pin opening message',naming:'Channel naming',nameArea:'Panel name',nameMember:'Panel and username',requiredRoles:'Required roles',blockedRoles:'Blocked roles',allRoles:'Require every selected role',accountDays:'Minimum account age in days',memberDays:'Minimum server membership in days',panelLogs:'Private panel log channel',panelLogNote:'New tickets send transcripts to this channel. Leave empty to use the server default.',resetPanel:'Discard changes'});
+Object.assign(lex['pt-BR'],{notice:'Texto informativo',noticeText:'Texto mostrado antes das respostas',minChoices:'Mínimo de opções',maxChoices:'Máximo de opções',duplicateQuestion:'Duplicar campo'});
+Object.assign(lex.en,{notice:'Text display',noticeText:'Text shown before answers',minChoices:'Minimum selections',maxChoices:'Maximum selections',duplicateQuestion:'Duplicate field'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
@@ -328,26 +330,54 @@ function extraPanelFields(panel){
   category.addEventListener('change',syncCategory);syncCategory();
   routing.append(label(t('panelEnabled'),panelEnabled),rolePicker,label(t('category'),category),label(t('overflow'),overflow));
   const questions=section('formRules'), list=make('div','',{class:'stack'}), fields=[];
-  function addQuestion(value={}){
+  function drawQuestions(){
+    fields.forEach((item,index)=>{
+      list.append(item.card);
+      item.up.disabled=index===0;item.down.disabled=index===fields.length-1;
+      item.duplicate.disabled=fields.length>=5;
+    });
+    add.disabled=fields.length>=5;
+  }
+  function addQuestion(value={},position=fields.length){
     const card=make('div','',{class:'area'});
     const title=make('input','',{maxlength:45,required:'',value:value.label||''});
-    const kind=select(['short','long','choice','checkbox','file'].map(k=>[k,t(k)]),value.kind||'short');
-    kind.setAttribute('aria-label',t('formRules'));
+    const kind=select(['short','long','choice','checkbox','file','notice'].map(k=>[k,t(k)]),value.kind||'short');
+    const titleField=label(t('question'),title);
+    const info=make('textarea',value.text||'',{maxlength:1000});
+    const infoField=label(t('noticeText'),info);
     const choices=make('textarea',(value.options||[]).join('\n'));
-    const choiceField=label(t('options'),choices);
+    const min=make('input','',{type:'number',min:0,max:25,step:1,value:value.min??Number(value.required??true)});
+    const max=make('input','',{type:'number',min:1,max:25,step:1,value:value.max??1});
+    const choiceFields=make('fieldset');choiceFields.append(label(t('options'),choices),label(t('minChoices'),min),label(t('maxChoices'),max));
     const required=make('input','',{type:'checkbox'});required.checked=value.required??true;
     const checkbox=label(t('required'),required);
-    const item={title,kind,choices,required};
-    const change=()=>{choiceField.hidden=kind.value!=='choice';choices.disabled=choiceField.hidden;choices.required=!choiceField.hidden};
-    kind.onchange=change;change();
-    const remove=click(t('removeQuestion'),()=>{fields.splice(fields.indexOf(item),1);card.remove();add.disabled=false;add.focus()});
-    card.append(label(t('question'),title),kind,choiceField,checkbox,remove);
-    fields.push(item);list.append(card);add.disabled=fields.length>=5;
-    return title;
+    const read=()=>({label:title.value,kind:kind.value,required:kind.value!=='notice'&&required.checked,text:info.value,
+      options:choices.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean),
+      min:Math.max(Number(required.checked),Number(min.value)),max:Number(max.value)});
+    const item={card,read};
+    const sync=()=>{
+      const notice=kind.value==='notice';
+      titleField.hidden=title.disabled=checkbox.hidden=notice;
+      infoField.hidden=info.disabled=!notice;info.required=notice;
+      choiceFields.hidden=choiceFields.disabled=kind.value!=='choice';choices.required=!choiceFields.hidden;
+    };
+    kind.onchange=sync;sync();
+    function move(delta){
+      const index=fields.indexOf(item),target=index+delta;
+      if(target<0||target>=fields.length)return;
+      fields.splice(index,1);fields.splice(target,0,item);drawQuestions();
+      (delta<0?(item.up.disabled?item.down:item.up):(item.down.disabled?item.up:item.down)).focus();
+    }
+    item.up=click(t('up'),()=>move(-1));item.down=click(t('down'),()=>move(1));
+    item.duplicate=click(t('duplicateQuestion'),()=>addQuestion(read(),fields.indexOf(item)+1).focus());
+    const remove=click(t('removeQuestion'),()=>{fields.splice(fields.indexOf(item),1);card.remove();drawQuestions();add.focus()});
+    const actions=make('div','',{class:'actions'});actions.append(item.up,item.down,item.duplicate,remove);
+    card.append(label(t('formRules'),kind),titleField,infoField,choiceFields,checkbox,actions);
+    fields.splice(position,0,item);drawQuestions();return kind.value==='notice'?info:title;
   }
   const add=click(t('addQuestion'),()=>addQuestion().focus());
-  questions.append(make('p',t('formHint'),{class:'muted'}),list,add);
-  for(const item of rule.questions||[])addQuestion(item);
+  questions.append(list,add);
+  for(const question of rule.questions??[])addQuestion(question);
   const hours=section('hours'), schedule=rule.schedule;
   const enabled=make('input','',{type:'checkbox'});enabled.checked=Boolean(schedule);
   const scheduleFields=make('fieldset','');
@@ -375,8 +405,7 @@ function extraPanelFields(panel){
   form.addEventListener('invalid',event=>{const group=event.target.closest('details');if(group)group.open=true},true);
   return {routing,questions,hours,value:()=>({
     enabled:panelEnabled.checked,supportRoles:[...selected].sort(),category:category.value,overflow:overflow.value,
-    questions:fields.map(x=>({label:x.title.value,kind:x.kind.value,required:x.required.checked,
-      options:x.kind.value==='choice'?x.choices.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean):[]})),
+    questions:fields.map(item=>item.read()),
     schedule:enabled.checked?{zone:zone.value,outside:outside.value,bypass:bypass.value,days:days.map(x=>x.state.value==='closed'?null:{status:x.state.value,start:x.start.value,end:x.end.value})}:null
   })};
 }
