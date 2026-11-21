@@ -140,13 +140,19 @@ export function validateRules(value,roles,channels){
   const q=r.questions??[];
   if(!Array.isArray(q)||q.length>5)throw Error('Invalid questions');
   const questions=q.map(x=>{
+    if(x?.kind==='notice')return {kind:'notice',text:limited(x.text??'',1000),label:'',required:false,options:[]};
     if(!x||typeof x.label!=='string'||x.label.trim().length<1||x.label.trim().length>45||!['short','long','choice','checkbox','file'].includes(x.kind)||typeof x.required!=='boolean')throw Error('Invalid question');
     const options=x.kind==='choice'?x.options:[];
-    if(!Array.isArray(options)||x.kind==='choice'&&(options.length<2||options.length>10||options.some(o=>typeof o!=='string'||!o.trim()||o.trim().length>80)))throw Error('Invalid choices');
+    if(!Array.isArray(options)||x.kind==='choice'&&(options.length<2||options.length>25||options.some(o=>typeof o!=='string'||!o.trim()||o.trim().length>80)))throw Error('Invalid choices');
     const list=options.map(o=>o.trim());
     if(new Set(list).size!==list.length)throw Error('Duplicate choices');
-    return {label:x.label.trim(),kind:x.kind,required:x.required,options:list};
+    const min=x.kind==='choice'?(x.min??Number(x.required)):0,max=x.kind==='choice'?(x.max??1):1;
+    if(!Number.isInteger(min)||!Number.isInteger(max)||min<Number(x.kind==='choice'&&x.required)||max<1||min>max||
+      x.kind==='choice'&&max>list.length)throw Error('Invalid selection limits');
+    return {label:x.label.trim(),kind:x.kind,required:x.required,options:list,min,max};
+
   });
+  if(questions.some(q=>q.kind==='notice')&&(questions.some(q=>q.kind==='notice'&&!q.text)||questions.every(q=>q.kind==='notice')))throw Error('Add a response field and fill the notice');
   const schedule=r.schedule??null;
   if(!schedule)return {...behavior,supportRoles,category,overflow,questions,schedule:null};
   if(typeof schedule.zone!=='string'||schedule.zone.length>80||!['warn','block'].includes(schedule.outside)||!Array.isArray(schedule.days)||schedule.days.length!==7)throw Error('Invalid schedule');
