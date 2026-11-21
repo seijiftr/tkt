@@ -69,6 +69,10 @@ body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#10
 .composer-compact{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px}.composer-compact label:first-child{grid-column:1/-1}
 .composer-controls input[type=color]{min-width:54px;width:54px;padding:4px}.composer-group [hidden]{display:none!important}
 .editor-preview-slot>.area{border-color:#533c69}
+.panel-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.panel-toolbar input{flex:1;min-width:190px}
+.panel-directory .panel-row-detail{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.panel-directory .panel-row-detail a{font-size:13px}
+.panel-state-paused{background:#452a31;color:#ffd4df;border-color:#734453}
+.preview-edit-actions{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0 0}.preview-edit-actions button{font-size:12px;min-height:30px;padding:3px 7px}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -109,6 +113,8 @@ Object.assign(lex['pt-BR'],{supportRoles:'Cargos de suporte',overflow:'Categoria
 Object.assign(lex.en,{supportRoles:'Support roles',overflow:'Overflow category',noOverflow:'No overflow category',previewChoice:'Selected option',spoiler:'Show spoiler',publishBusy:'This panel is already being published.',cleanupPending:'Published. Republish to retry removing the older message.'});
 Object.assign(lex['pt-BR'],{pickRole:'Adicionar cargo…',removeRole:'Remover cargo',defaultTeam:'Somente a equipe padrão do servidor',roleLimit:'Limite de 20 cargos selecionados',composerMessage:'Conteúdo',composerMedia:'Imagem, cor e rodapé',composerOptions:'Botões e menu',composerBlocks:'Campos e blocos',composerTicketActions:'Ações do ticket',composerStyle:'Aparência',composerPlacement:'Posição dos botões'});
 Object.assign(lex.en,{pickRole:'Add a role…',removeRole:'Remove role',defaultTeam:'Server default support team only',roleLimit:'Limit of 20 selected roles',composerMessage:'Content',composerMedia:'Image, color and footer',composerOptions:'Buttons and menu',composerBlocks:'Fields and blocks',composerTicketActions:'Ticket actions',composerStyle:'Appearance',composerPlacement:'Button position'});
+Object.assign(lex['pt-BR'],{panelSearch:'Buscar painel pelo nome',panelState:'Estado do painel',panelEnabled:'Aceitar novos tickets',panelActive:'Ativo',panelPaused:'Pausado',panelNoResults:'Nenhum painel corresponde à busca.',panelNotPublished:'Sem publicação registrada',editMessage:'Editar conteúdo',editMedia:'Editar aparência',editOptions:'Editar opções'});
+Object.assign(lex.en,{panelSearch:'Search panels by name',panelState:'Panel status',panelEnabled:'Accept new tickets',panelActive:'Active',panelPaused:'Paused',panelNoResults:'No panels match your search.',panelNotPublished:'No publication recorded',editMessage:'Edit content',editMedia:'Edit appearance',editOptions:'Edit options'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
@@ -275,6 +281,7 @@ function extraPanelFields(panel){
     panel.append(make('summary',t(key)));form.append(panel);return panel;
   }
   const routing=section('routing');
+  const panelEnabled=make('input','',{type:'checkbox'});panelEnabled.checked=rule.enabled!==false;
   const roles=data.roles.map(r=>[r.id,r.name]);
   const selected=new Set(rule.supportRoles??(rule.role?[rule.role]:[]));
   const rolePicker=make('fieldset','',{class:'role-menu'});
@@ -307,7 +314,7 @@ function extraPanelFields(panel){
     if(overflow.selectedOptions[0]?.disabled)overflow.value='';
   }
   category.addEventListener('change',syncCategory);syncCategory();
-  routing.append(rolePicker,label(t('category'),category),label(t('overflow'),overflow));
+  routing.append(label(t('panelEnabled'),panelEnabled),rolePicker,label(t('category'),category),label(t('overflow'),overflow));
   const questions=section('formRules'), list=make('div','',{class:'stack'}), fields=[];
   function addQuestion(value={}){
     const card=make('div','',{class:'area'});
@@ -355,7 +362,7 @@ function extraPanelFields(panel){
   hours.append(label(t('hoursOn'),enabled),scheduleFields);
   form.addEventListener('invalid',event=>{const group=event.target.closest('details');if(group)group.open=true},true);
   return {routing,questions,hours,value:()=>({
-    supportRoles:[...selected].sort(),category:category.value,overflow:overflow.value,
+    enabled:panelEnabled.checked,supportRoles:[...selected].sort(),category:category.value,overflow:overflow.value,
     questions:fields.map(x=>({label:x.title.value,kind:x.kind.value,required:x.required.checked,
       options:x.kind.value==='choice'?x.choices.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean):[]})),
     schedule:enabled.checked?{zone:zone.value,outside:outside.value,bypass:bypass.value,days:days.map(x=>x.state.value==='closed'?null:{status:x.state.value,start:x.start.value,end:x.end.value})}:null
@@ -553,7 +560,7 @@ function presentationEditor(panel,title,body){
   function group(key,nodes,open=false){
     const section=make('details','',{class:'composer-group'});section.open=open;
     const content=make('div','',{class:'composer-group-content'});content.append(...nodes);
-    section.append(make('summary',t(key)),content);return section;
+    section.dataset.group=key;section.append(make('summary',t(key)),content);return section;
   }
   function compose(parent,top,groups){
     parent.classList.add('composer-controls');
@@ -579,6 +586,20 @@ function presentationEditor(panel,title,body){
     group('composerTicketActions',[claim.fieldset,rename.fieldset,close.fieldset]),
     internalPlacement
   ]);
+  function previewShortcuts(card,editor,options){
+    const bar=make('div','',{class:'preview-edit-actions'});
+    for(const [labelKey,groupKey] of [['editMessage','composerMessage'],['editMedia','composerMedia'],['editOptions',options]]){
+      bar.append(click(t(labelKey),()=>{
+        const section=editor.querySelector('[data-group="'+groupKey+'"]');
+        section.open=true;
+        const control=section.querySelector('input:not([disabled]),textarea:not([disabled]),select:not([disabled])');
+        (control||section.querySelector('summary')).focus();
+      },{class:'quiet'}));
+    }
+    card.append(bar);
+  }
+  previewShortcuts(card,formats,'composerOptions');
+  previewShortcuts(insideCard,inside,'composerTicketActions');
   function preview(){
     const p=dataValue();
     embed.hidden=p.layout==='v2';embedImage.hidden=embedFooter.hidden=image.disabled=embed.hidden;components.hidden=publicPlacement.hidden=p.layout!=='v2';menuDetails.hidden=p.navigation!=='menu';
@@ -670,21 +691,39 @@ function panelsPage(){
   list.classList.add('panel-list');
   const openEditor=id=>{panelId=id;panelEditing=true;render()};
   if(!panelEditing){
-    list.append(click(t('add'),()=>openEditor(''),{class:'primary'}));
     const directory=make('div','',{class:'panel-directory'});
-    for(const panel of data.panels){
-      const row=make('article','',{class:'row'});
-      const appearance=panel.rules?.presentation;
-      const remove=click('×',()=>deletePanel(panel,remove),{class:'panel-delete','aria-label':t('deletePanel')+' '+panel.title});
-      row.append(remove,make('strong',panel.title),
-        make('p',t(appearance?.layout==='v2'?'v2':'embed')+' · '+t(appearance?.navigation==='menu'?'menuMode':'buttonMode'),{class:'muted'}),
-        click(t('edit'),()=>openEditor(panel.id),{'aria-label':t('edit')+' '+panel.title}));
-      directory.append(row);
+    const toolbar=make('div','',{class:'panel-toolbar'});
+    const search=make('input','',{type:'search',placeholder:t('panelSearch'),'aria-label':t('panelSearch')});
+    const filter=select([['all',t('all')],['active',t('panelActive')],['paused',t('panelPaused')]],'all');
+    filter.setAttribute('aria-label',t('panelState'));
+    toolbar.append(search,filter,click(t('add'),()=>openEditor(''),{class:'primary'}));
+    function draw(){
+      const query=search.value.trim().toLocaleLowerCase(language);
+      const matched=data.panels.filter(panel=>{
+        const state=panel.rules?.enabled===false?'paused':'active';
+        return panel.title.toLocaleLowerCase(language).includes(query)&&(filter.value==='all'||filter.value===state);
+      });
+      directory.replaceChildren(...matched.map(panel=>{
+        const row=make('article','',{class:'row'}), rules=panel.rules??{}, appearance=rules.presentation;
+        const remove=click('×',()=>deletePanel(panel,remove),{class:'panel-delete','aria-label':t('deletePanel')+' '+panel.title});
+        const details=make('div','',{class:'panel-row-detail'});
+        details.append(make('span',t(rules.enabled===false?'panelPaused':'panelActive'),{class:'pill '+(rules.enabled===false?'panel-state-paused':'open')}));
+        if(!demo)details.append(make('small',t('active')+' · '+(panel.openCount??0),{class:'muted'}));
+        const categoryId=rules.category||data.settings?.category;
+        const categoryName=data.channels.find(channel=>channel.id===categoryId)?.name;
+        const publication=panel.publication;
+        if(publication)details.append(make('a',t('visit'),{href:'https://discord.com/channels/'+guild+'/'+publication.channel+'/'+publication.message,target:'_blank',rel:'noopener noreferrer'}));
+        else if(!demo)details.append(make('small',t('panelNotPublished'),{class:'muted'}));
+        row.append(remove,make('strong',panel.title),details,
+          make('p',[categoryName,t(appearance?.layout==='v2'?'v2':'embed'),t(appearance?.navigation==='menu'?'menuMode':'buttonMode')].filter(Boolean).join(' · '),{class:'muted'}),
+          click(t('edit'),()=>openEditor(panel.id),{'aria-label':t('edit')+' '+panel.title}));
+        return row;
+      }));
+      if(!matched.length)directory.append(make('p',t(data.panels.length?'panelNoResults':'empty'),{class:'muted'}));
     }
-    if(!data.panels.length)list.append(make('p',t('empty')));
-    list.append(directory);layout.append(list);return layout;
+    search.oninput=filter.onchange=draw;draw();
+    list.append(toolbar,directory);layout.append(list);return layout;
   }
-
   const panel=data.panels.find(p=>p.id===panelId);
   const title=make('input','',{maxlength:80,required:'',value:panel?.title||''});
   const body=make('textarea',panel?.body||'',{maxlength:1000,required:''});
@@ -697,7 +736,7 @@ function panelsPage(){
   if(!panel||demo)publication.append(make('p',t(!panel?'noPublication':'demoMode'),{class:'muted'}));
   let updatePublication=()=>{};
   if(panel&&!demo){
-    const dest=select(data.channels.filter(c=>c.type!==4).map(c=>[c.id,'# '+c.name]),'',t('choose'));
+    const dest=select(data.channels.filter(c=>c.type!==4).map(c=>[c.id,'# '+c.name]),panel.publication?.channel||'',t('choose'));
     const confirmation=make('div','',{class:'stack'});confirmation.hidden=true;
     const publish=click(t('publish'),()=>{confirmation.hidden=false;confirmButton.focus()});
     const confirmButton=click(t('publishNow'),async()=>{
