@@ -1,7 +1,7 @@
 import {
   Client, Events, GatewayIntentBits, PermissionFlagsBits as Permission,
   ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
-  ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, LabelBuilder, StringSelectMenuBuilder, FileUploadBuilder, CheckboxBuilder,
+  ModalBuilder, TextDisplayBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, LabelBuilder, StringSelectMenuBuilder, FileUploadBuilder, CheckboxBuilder,
   AttachmentBuilder, MessageFlags,
 } from 'discord.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -221,10 +221,11 @@ function panelModal(i,panel){
     return modal.addLabelComponents(new LabelBuilder().setLabel(translated(i,'Descreva seu pedido','Describe your request')).setTextInputComponent(text));
   }
   for(const [index,question] of form.entries()){
+    if(question.kind==='notice'){modal.addTextDisplayComponents(new TextDisplayBuilder().setContent(question.text));continue}
     const label=new LabelBuilder().setLabel(question.label);
     const id='q'+index;
     if(question.kind==='choice'){
-      const menu=new StringSelectMenuBuilder().setCustomId(id).setRequired(question.required).setMinValues(question.required?1:0).setMaxValues(1)
+      const menu=new StringSelectMenuBuilder().setCustomId(id).setRequired(question.required).setMinValues(question.min??Number(question.required)).setMaxValues(question.max??1)
         .addOptions(question.options.map((option,n)=>({label:option,value:String(n)})));
       label.setStringSelectMenuComponent(menu);
     }else if(question.kind==='file'){
@@ -244,10 +245,16 @@ function panelModal(i,panel){
 function panelAnswers(i,panel){
   const fields=[],uploads=[];
   for(const [index,question] of (panel.rules.questions??[]).entries()){
+    if(question.kind==='notice')continue;
     const id='q'+index;
     let value='';
     if(i.fields.fields.has(id)){
-      if(question.kind==='choice')value=question.options[Number(i.fields.getStringSelectValues(id)[0])]??'';
+      if(question.kind==='choice'){
+        const selected=i.fields.getStringSelectValues(id);
+        if(selected.length<(question.min??Number(question.required))||selected.length>(question.max??1))
+          throw Error(translated(i,'Confira a quantidade de opções selecionadas.','Check the number of selected options.'));
+        value=selected.map(option=>question.options[Number(option)]).filter(Boolean).join(', ').slice(0,1000);
+      }
       else if(question.kind==='checkbox'){
         const checked=i.fields.getCheckbox(id);
         if(checked||!question.required)value=checked?translated(i,'Sim','Yes'):translated(i,'Não','No');
