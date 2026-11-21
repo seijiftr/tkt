@@ -84,6 +84,14 @@ body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#10
 .editor-section h3{margin:0 0 10px}.editor-section select{width:100%}
 @media(max-width:690px){.panel-editor-area .panel-tabs{position:relative;top:auto}.panel-editor-area .panel-pages{padding:13px}.editor-publish{width:100%}}
 dialog{background:#221632;color:var(--ink);border:1px solid #79569d;border-radius:14px;padding:22px;max-width:min(530px,90vw)}dialog::backdrop{background:#0a0610bb}dialog .actions{margin:12px 0}
+
+.embed-editor-card{border:1px solid #604775;border-left:4px solid var(--embed-accent,#aa78f4);padding:14px;border-radius:13px;background:#21162f;display:grid;gap:10px}
+.embed-actions,.format-options,.form-card-head{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.format-options button{flex:1;text-align:left}.format-options button[aria-pressed=true]{border-color:#b68ae3;background:#432a60}
+.form-card{border:1px solid var(--line);border-radius:10px;background:#22182f;padding:10px;margin:0}.form-card-head{justify-content:space-between}.form-card summary{cursor:pointer;flex:1;overflow-wrap:anywhere}.form-card-body{padding:10px 4px 2px}
+.form-picker-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:14px 0}.form-picker-grid button{text-align:left}.form-picker-grid button small{display:block;color:var(--muted)}
+.embed-author,.embed-footer{display:flex;align-items:center;gap:7px}.embed-author img,.embed-footer img{width:24px;height:24px;object-fit:cover;border-radius:50%}
+.message-frame .embed-thumbnail{float:right;width:58px;height:58px;object-fit:contain;margin-left:8px}.extra-preview{background:#281b38;border-left:3px solid var(--accent);padding:8px}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -132,6 +140,10 @@ Object.assign(lex['pt-BR'],{notice:'Texto informativo',noticeText:'Texto mostrad
 Object.assign(lex.en,{notice:'Text display',noticeText:'Text shown before answers',minChoices:'Minimum selections',maxChoices:'Maximum selections',duplicateQuestion:'Duplicate field'});
 Object.assign(lex['pt-BR'],{user:'Seletor de usuários',roleSelect:'Seletor de cargos',channelSelect:'Seletor de canais',templates:'Usar modelo',templateSupport:'Suporte geral',templateBug:'Relatar erro',templateBilling:'Financeiro',templateReport:'Denunciar conduta',templateClose:'Voltar aos painéis',templateMessage:'Selecione a opção abaixo para abrir um atendimento.',templateExplain:'Descreva sua solicitação',templateSteps:'Como reproduzir o problema?',templateBillingQ:'Qual é sua dúvida sobre a cobrança?',templateReportQ:'O que aconteceu?'});
 Object.assign(lex.en,{user:'User picker',roleSelect:'Role picker',channelSelect:'Channel picker',templates:'Use a template',templateSupport:'General support',templateBug:'Bug report',templateBilling:'Billing',templateReport:'Report misconduct',templateClose:'Back to panels',templateMessage:'Select the option below to open a ticket.',templateExplain:'Describe your request',templateSteps:'How can we reproduce the problem?',templateBillingQ:'What is your billing question?',templateReportQ:'What happened?'});
+Object.assign(lex['pt-BR'],{formEnabled:'Usar formulário personalizado',formDescription:'Descrição da pergunta',pickFormField:'Adicionar ao formulário',formTextHint:'O membro digita uma resposta.',formSelectHint:'O membro escolhe uma ou mais opções.',formFileHint:'O membro envia um arquivo.',formNoteHint:'Mostre instruções ou regras.',embedAuthor:'Autor',embedAuthorUrl:'Link HTTPS do autor',embedAuthorIcon:'URL do ícone do autor',embedThumbnail:'URL da miniatura',embedFooterIcon:'URL do ícone do rodapé',addEmbed:'Adicionar embed',duplicateEmbed:'Duplicar conteúdo do embed',extraEmbed:'Embed adicional',embedOptions:'Opções de abertura'});
+Object.assign(lex.en,{formEnabled:'Use a custom form',formDescription:'Question description',pickFormField:'Add to form',formTextHint:'Members type an answer.',formSelectHint:'Members select one or more options.',formFileHint:'Members upload a file.',formNoteHint:'Show instructions or rules.',embedAuthor:'Author',embedAuthorUrl:'Author HTTPS link',embedAuthorIcon:'Author icon URL',embedThumbnail:'Thumbnail URL',embedFooterIcon:'Footer icon URL',addEmbed:'Add embed',duplicateEmbed:'Duplicate embed content',extraEmbed:'Additional embed',embedOptions:'Opening options'});
+Object.assign(lex['pt-BR'],{linkedFaq:'Pergunta frequente vinculada',noFaqLink:'Sem pergunta vinculada',faqButton:'Pergunta frequente'});
+Object.assign(lex.en,{linkedFaq:'Linked FAQ entry',noFaqLink:'No FAQ entry linked',faqButton:'Frequently asked question'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let templateDraft=null;
@@ -335,19 +347,21 @@ function extraPanelFields(panel){
   category.addEventListener('change',syncCategory);syncCategory();
   routing.append(label(t('panelEnabled'),panelEnabled),rolePicker,label(t('category'),category),label(t('overflow'),overflow));
   const questions=section('formRules'), list=make('div','',{class:'stack'}), fields=[];
+  const useForm=make('input','',{type:'checkbox'});useForm.checked=rule.formEnabled??Boolean(rule.questions?.length);
   function drawQuestions(){
     fields.forEach((item,index)=>{
       list.append(item.card);
       item.up.disabled=index===0;item.down.disabled=index===fields.length-1;
       item.duplicate.disabled=fields.length>=5;
     });
-    add.disabled=fields.length>=5;
+    add.disabled=fields.length>=5;add.textContent=t('pickFormField')+' ('+fields.length+'/5)';
   }
   function addQuestion(value={},position=fields.length){
-    const card=make('div','',{class:'area'});
+    const card=make('details','',{class:'form-card'});card.open=true;
     const title=make('input','',{maxlength:45,required:'',value:value.label||''});
     const kind=select(['short','long','choice','user','role','channel','checkbox','file','notice'].map(k=>[k,t({role:'roleSelect',channel:'channelSelect'}[k]??k)]),value.kind||'short');
     const titleField=label(t('question'),title);
+    const description=make('input','',{maxlength:100,value:value.description||''}),descriptionField=label(t('formDescription'),description);
     const info=make('textarea',value.text||'',{maxlength:1000});
     const infoField=label(t('noticeText'),info);
     const choices=make('textarea',(value.options||[]).join('\n'));
@@ -357,13 +371,13 @@ function extraPanelFields(panel){
     choiceFields.append(choiceList,label(t('minChoices'),min),label(t('maxChoices'),max));
     const required=make('input','',{type:'checkbox'});required.checked=value.required??true;
     const checkbox=label(t('required'),required);
-    const read=()=>({label:title.value,kind:kind.value,required:kind.value!=='notice'&&required.checked,text:info.value,
+    const read=()=>({label:title.value,kind:kind.value,required:kind.value!=='notice'&&required.checked,text:info.value,description:description.value,
       options:choices.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean),
       min:Math.max(Number(required.checked),Number(min.value)),max:Number(max.value)});
     const item={card,read};
     const sync=()=>{
       const notice=kind.value==='notice';
-      titleField.hidden=title.disabled=checkbox.hidden=notice;
+      titleField.hidden=title.disabled=checkbox.hidden=descriptionField.hidden=description.disabled=notice;
       infoField.hidden=info.disabled=!notice;info.required=notice;
       choiceFields.hidden=choiceFields.disabled=!['choice','user','role','channel'].includes(kind.value);
       choiceList.hidden=choices.disabled=kind.value!=='choice';choices.required=!choiceList.hidden;
@@ -379,12 +393,27 @@ function extraPanelFields(panel){
     item.duplicate=click(t('duplicateQuestion'),()=>addQuestion(read(),fields.indexOf(item)+1).focus());
     const remove=click(t('removeQuestion'),()=>{fields.splice(fields.indexOf(item),1);card.remove();drawQuestions();add.focus()});
     const actions=make('div','',{class:'actions'});actions.append(item.up,item.down,item.duplicate,remove);
-    card.append(label(t('formRules'),kind),titleField,infoField,choiceFields,checkbox,actions);
+    const summary=make('summary',''),content=make('div','',{class:'form-card-body'});
+    const caption=()=>{summary.textContent=(kind.value==='notice'?info.value:title.value).trim().slice(0,50)||kind.selectedOptions[0].textContent};
+    card.addEventListener('input',caption);card.addEventListener('change',caption);caption();
+    content.append(label(t('formRules'),kind),titleField,descriptionField,infoField,choiceFields,checkbox,actions);
+    card.append(summary,content);
     fields.splice(position,0,item);drawQuestions();return kind.value==='notice'?info:title;
   }
-  const add=click(t('addQuestion'),()=>addQuestion().focus());
-  questions.append(list,add);
+  const picker=make('dialog','',{'aria-label':t('pickFormField')});
+  const types=make('div','',{class:'form-picker-grid'});
+  for(const [kind,key,hint] of [['short','short','formTextHint'],['choice','choice','formSelectHint'],['file','file','formFileHint'],['notice','notice','formNoteHint']]){
+    const type=click(t(key),()=>{picker.close();if(fields.length<5)addQuestion({kind}).focus()});
+    type.append(make('small',t(hint)));types.append(type);
+  }
+  picker.append(make('h3',t('pickFormField')),types,click(t('cancel'),()=>picker.close()));
+  const add=click(t('pickFormField'),()=>picker.showModal());
+  const formFields=make('fieldset');formFields.append(list,add,picker);
+  function showForm(){formFields.hidden=formFields.disabled=!useForm.checked}
+  useForm.onchange=showForm;
+  questions.append(label(t('formEnabled'),useForm),formFields);
   for(const question of rule.questions??[])addQuestion(question);
+  drawQuestions();showForm();
   const hours=section('hours'), schedule=rule.schedule;
   const enabled=make('input','',{type:'checkbox'});enabled.checked=Boolean(schedule);
   const scheduleFields=make('fieldset','');
@@ -412,7 +441,7 @@ function extraPanelFields(panel){
   form.addEventListener('invalid',event=>{const group=event.target.closest('details');if(group)group.open=true},true);
   return {routing,questions,hours,value:()=>({
     enabled:panelEnabled.checked,supportRoles:[...selected].sort(),category:category.value,overflow:overflow.value,
-    questions:fields.map(item=>item.read()),
+    formEnabled:useForm.checked,questions:fields.map(item=>item.read()),
     schedule:enabled.checked?{zone:zone.value,outside:outside.value,bypass:bypass.value,days:days.map(x=>x.state.value==='closed'?null:{status:x.state.value,start:x.start.value,end:x.end.value})}:null
   })};
 }
@@ -480,8 +509,12 @@ function presentationEditor(panel,title,body){
   const color=field(look.color??'#a079ec',7,'color');
   const heading=field(look.title);
   const footer=field(look.footer),image=field(look.image,900,'url');
+  const author=field(look.author),authorUrl=field(look.authorUrl,900,'url'),authorIcon=field(look.authorIcon,900,'url');
+  const thumbnail=field(look.thumbnail,900,'url'),footerIcon=field(look.footerIcon,900,'url');
   const placeholder=field(look.placeholder,150),description=field(look.description,100);
   const actionsFirst=check(look.actionsFirst);
+  const faqPicker=select(data.faqs.filter(entry=>entry.published).map(entry=>[entry.id,entry.question]),look.faqId||'',t('noFaqLink'));
+  if(!faqPicker.value)faqPicker.value='';
   const styles=['blue','gray','green','red'].map((k,i)=>[String(i+1),t(k)]);
   const button=(parent,key,config={},switchable=false)=>{
     const set=make('fieldset','',{class:'area'});set.append(make('legend',t(key)));
@@ -587,8 +620,8 @@ function presentationEditor(panel,title,body){
   card.append(previewTitle,publicFormat,canvas);
   editor.append(card);
   function dataValue(){
-    return {layout:layout.value,navigation:navigation.value,links:links.slice(),color:color.value,title:heading.value,
-      footer:footer.value,image:image.value,placeholder:placeholder.value,description:description.value,opener:opener(),
+    return {layout:layout.value,navigation:navigation.value,links:links.slice(),color:color.value,title:heading.value,faqId:faqPicker.value,
+      footer:footer.value,image:image.value,author:author.value,authorUrl:authorUrl.value,authorIcon:authorIcon.value,thumbnail:thumbnail.value,footerIcon:footerIcon.value,extras:extraCards.map(item=>({title:item.title.value,body:item.body.value})),placeholder:placeholder.value,description:description.value,opener:opener(),
       fields:fieldItems.map(x=>({name:x.name.value,value:x.value.value,inline:x.inline.checked})),
       blocks:blockItems.map(x=>({kind:x.kind.value,value:x.value.value})),actionsFirst:actionsFirst.checked,
       inside:{layout:insideLayout.value,message:insideMessage.value,title:insideTitle.value,footer:insideFooter.value,image:insideImage.value,
@@ -619,14 +652,35 @@ function presentationEditor(panel,title,body){
   const openButton=opener.fieldset;
   const embedFooter=footer.closest('label'),embedImage=image.closest('label');
   const placement=actionsFirst.closest('label');
-  compose(formats,[layout,navigation],[
-    group('composerMessage',[openTitle,label(t('body'),body)],true),
-    group('composerMedia',[openColor,embedImage,embedFooter]),
-    group('composerOptions',[openButton,menuDetails,linkPicker.closest('label'),addLink,linkArea]),
-    group('composerBlocks',[embed,components]),
-    group('composerPlacement',[placement])
-  ]);
-  const publicPlacement=placement.closest('.composer-group');
+  const formatButtons=make('div','',{class:'format-options'});
+  const modes=[['embed','embed'],['v2','v2']].map(([value,key])=>click(t(key),()=>{layout.value=value;preview()}));
+  formatButtons.append(...modes);
+  const embedMeta=make('div','',{class:'stack'});
+  embedMeta.append(label(t('embedAuthor'),author),label(t('embedAuthorUrl'),authorUrl),label(t('embedAuthorIcon'),authorIcon),label(t('embedThumbnail'),thumbnail));
+  const extraCards=[],extraList=make('div','',{class:'stack'});
+  const extrasSection=make('div','',{class:'stack'});
+  const addExtra=click(t('addEmbed'),()=>addExtraCard({}));
+  const duplicate=click(t('duplicateEmbed'),()=>addExtraCard({title:heading.value||title.value,body:body.value}));
+  function syncExtras(){addExtra.disabled=duplicate.disabled=extraCards.length>=3}
+  function addExtraCard(item){
+    if(extraCards.length>=3)return;
+    const row=make('div','',{class:'embed-editor-card'}),extraTitle=field(item.title),extraBody=make('textarea',item.body||'',{maxlength:1000});
+    const entry={title:extraTitle,body:extraBody};
+    row.append(make('strong',t('extraEmbed')),label(t('displayTitle'),extraTitle),label(t('body'),extraBody),click(t('removeItem'),()=>{
+      extraCards.splice(extraCards.indexOf(entry),1);row.remove();syncExtras();preview();
+    }));
+    extraCards.push(entry);extraList.append(row);syncExtras();
+  }
+  for(const item of look.extras??[])addExtraCard(item);
+  extrasSection.append(extraList,addExtra);
+  const embedCard=make('div','',{class:'embed-editor-card'});
+  const actions=make('div','',{class:'embed-actions'});actions.append(openColor,duplicate);
+  embedCard.append(actions,embedMeta,openTitle,label(t('body'),body),embed,embedImage,embedFooter,label(t('embedFooterIcon'),footerIcon),components,placement);
+  const optionsGroup=group('composerOptions',[navigation.closest('label'),openButton,menuDetails,linkPicker.closest('label'),addLink,linkArea],true);
+  formats.classList.add('composer-controls');
+  formats.replaceChildren(formatButtons,embedCard,extrasSection,optionsGroup,group('linkedFaq',[label(t('linkedFaq'),faqPicker)]));
+  embedCard.dataset.group='composerMessage';embedMeta.dataset.group='composerMedia';
+  const publicPlacement=placement;
   const internalPlacement=group('composerPlacement',[firstLabel]);
   compose(inside,[insideLayout],[
     group('composerMessage',[insideTitle.closest('label'),insideMessage.closest('label')],true),
@@ -639,7 +693,7 @@ function presentationEditor(panel,title,body){
     for(const [labelKey,groupKey] of [['editMessage','composerMessage'],['editMedia','composerMedia'],['editOptions',options]]){
       bar.append(click(t(labelKey),()=>{
         const section=editor.querySelector('[data-group="'+groupKey+'"]');
-        section.open=true;
+        if(section.localName==='details')section.open=true;
         const control=section.querySelector('input:not([disabled]),textarea:not([disabled]),select:not([disabled])');
         (control||section.querySelector('summary')).focus();
       },{class:'quiet'}));
@@ -650,7 +704,13 @@ function presentationEditor(panel,title,body){
   previewShortcuts(insideCard,inside,'composerTicketActions');
   function preview(){
     const p=dataValue();
-    embed.hidden=p.layout==='v2';embedImage.hidden=embedFooter.hidden=image.disabled=embed.hidden;components.hidden=publicPlacement.hidden=p.layout!=='v2';menuDetails.hidden=p.navigation!=='menu';
+    const usingV2=p.layout==='v2';
+    modes.forEach((mode,index)=>mode.setAttribute('aria-pressed',String(index===Number(usingV2))));
+    embedCard.style.setProperty('--embed-accent',p.color);
+    embed.hidden=embedMeta.hidden=extrasSection.hidden=duplicate.hidden=embedImage.hidden=embedFooter.hidden=image.disabled=usingV2;
+    for(const input of [authorUrl,authorIcon,thumbnail,footerIcon])input.disabled=usingV2;
+    footerIcon.closest('label').hidden=usingV2;
+    components.hidden=publicPlacement.hidden=!usingV2;menuDetails.hidden=p.navigation!=='menu';
     canvas.style.borderColor=p.color;
     publicFormat.textContent=t(p.layout==='v2'?'v2':'embed')+' · '+t(p.navigation==='menu'?'menuMode':'buttonMode');
     const message=[discordText(p.title||title.value||t('name'),true),discordText(body.value||t('body'))];
@@ -663,7 +723,19 @@ function presentationEditor(panel,title,body){
       if(grid.childElementCount)message.push(grid);
       const picture=previewImage(p.image);
       if(picture)message.push(picture);
-      if(p.footer)message.push(discordText(p.footer,true));
+      const authorLine=make('div','',{class:'embed-author'}),authorPic=previewImage(p.authorIcon);
+      const thumb=previewImage(p.thumbnail);
+      if(thumb){thumb.classList.add('embed-thumbnail');message.unshift(thumb)}
+      if(p.author){if(authorPic)authorLine.append(authorPic);authorLine.append(discordText(p.author,true));message.unshift(authorLine)}
+      if(p.footer){
+        const line=make('div','',{class:'embed-footer'}),icon=previewImage(p.footerIcon);
+        if(icon)line.append(icon);
+        line.append(discordText(p.footer,true));message.push(line);
+      }
+      for(const item of p.extras){
+        const section=make('div','',{class:'extra-preview'});
+        section.append(discordText(item.title,true),discordText(item.body));message.push(section);
+      }
     }else for(const b of p.blocks){
       const node=b.kind==='divider'?make('hr'):b.kind==='image'?previewImage(b.value):discordText(b.value);
       if(node)message.push(node);
@@ -686,6 +758,7 @@ function presentationEditor(panel,title,body){
       };
       bar.append(menu,selection);
     }else for(const [button,label] of items)bar.append(previewButton(button,label));
+    if(p.faqId)bar.append(previewButton({style:2},t('faqButton')));
     canvas.replaceChildren(...(p.layout==='v2'&&p.actionsFirst?[bar,...message]:[...message,bar]));
   }
   function previewInside(){
@@ -863,7 +936,7 @@ function panelsPage(){
     };
   }
   editor.addEventListener('invalid',e=>{
-    const group=e.target.closest('.composer-group');if(group)group.open=true;
+    const group=e.target.closest('.composer-group,.form-card');if(group)group.open=true;
     const page=e.target.closest('[role=tabpanel]');
     const index=pages.indexOf(page);if(index>=0&&page.hidden)selectTab(index);
   },true);
