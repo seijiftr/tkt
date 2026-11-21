@@ -118,6 +118,8 @@ dialog{background:#221632;color:var(--ink);border:1px solid #79569d;border-radiu
 .link-appearance{width:100%}.linked-builder-controls{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:8px}.linked-builder-controls label{margin:0}
 .v2-message-stack{display:grid;gap:8px;min-width:0}.v2-section-preview{display:grid;grid-template-columns:minmax(0,1fr) 65px;gap:8px;align-items:start}.v2-section-preview img{width:65px;max-height:65px;object-fit:contain}
 .v2-spacer{border:0;margin:7px 0}.v2-spacer.line{border-top:1px solid #5e4772}.v2-spacer.large{margin:17px 0}
+
+.v2-composition{padding:12px;border:1px solid var(--line);border-radius:10px}.v2-placement{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:7px}.v2-placement label{margin:0}.v2-gallery-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px}.v2-gallery-preview img{width:100%;height:120px;object-fit:cover}.v2-gallery-preview img:only-child{height:auto}.v2-flow-frame{display:grid;gap:9px}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -176,6 +178,8 @@ Object.assign(lex['pt-BR'],{searchTickets:'Buscar por área, ID ou solicitante',
 Object.assign(lex.en,{searchTickets:'Search by area, ID or requester',ticketFilters:'Filters',ticketPanel:'Panel',ticketOwner:'Requester ID',ticketAgent:'Assignee ID',fromDate:'Opened from (UTC)',toDate:'Opened through (UTC)',ticketDetails:'Ticket details',ticketId:'Channel ID',ticketClosedAt:'Closed at',ticketFullHistory:'Browse the support history',clearTicketFilters:'Clear filters',ticketRefresh:'Refresh'});
 Object.assign(lex['pt-BR'],{mainOrder:'Posição do título e da mensagem',controlPlacement:'Posição dos botões e menus',insideAbove:'Dentro da caixa, no início',insideBelow:'Dentro da caixa, no fim',outsideAbove:'Fora da caixa, acima',outsideBelow:'Fora da caixa, abaixo',menuSize:'Opções por menu',sectionBlock:'Seção com miniatura',dividerLine:'Exibir linha',dividerLarge:'Espaçamento maior',linkedAppearance:'Personalizar neste painel',draftFormOff:'O modelo inclui uma pergunta de exemplo. Ative o formulário em Formulários para usar.'});
 Object.assign(lex.en,{mainOrder:'Title and message position',controlPlacement:'Button and menu placement',insideAbove:'Inside the container, at top',insideBelow:'Inside the container, at bottom',outsideAbove:'Outside the container, above',outsideBelow:'Outside the container, below',menuSize:'Options per menu',sectionBlock:'Section with thumbnail',dividerLine:'Show rule',dividerLarge:'Larger spacing',linkedAppearance:'Customize in this panel',draftFormOff:'This template includes a sample question. Enable the form in Forms to use it.'});
+Object.assign(lex['pt-BR'],{composition:'Composição da mensagem',customOrder:'Definir posição exata dos botões',controlOrder:'Posição dos botões na sequência',boxSelect:'Caixa do componente',boxNone:'Sem caixa',boxNumber:'Caixa',galleryBlock:'Galeria de mídias',galleryUrls:'URLs HTTPS, uma por linha',linkBlock:'Botão de link',linkUrl:'Destino HTTPS',componentLimit:'A mensagem ultrapassa o limite de componentes do Discord.'});
+Object.assign(lex.en,{composition:'Message composition',customOrder:'Set exact button position',controlOrder:'Button position in the sequence',boxSelect:'Component container',boxNone:'Outside containers',boxNumber:'Container',galleryBlock:'Media gallery',galleryUrls:'HTTPS URLs, one per line',linkBlock:'Link button',linkUrl:'HTTPS destination',componentLimit:'The message exceeds the Discord component limit.'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let templateDraft=null, editorTab=0;
@@ -620,7 +624,10 @@ function presentationEditor(panel,title,body){
   const author=field(look.author),authorUrl=field(look.authorUrl,900,'url'),authorIcon=field(look.authorIcon,900,'url');
   const thumbnail=field(look.thumbnail,900,'url'),footerIcon=field(look.footerIcon,900,'url');
   const placeholder=field(look.placeholder,150),description=field(look.description,100);
-  const bodyPosition=select([],String(look.bodyPosition??0));
+  const boxes=[[0,t('boxNone')],...[1,2,3].map(n=>[n,t('boxNumber')+' '+n])].map(([id,name])=>[String(id),name]);
+  const bodyPosition=select([],String(look.bodyPosition??0)),controlOrder=select([],String(look.actionPosition??0));
+  const bodyBox=select(boxes,String(look.bodyBox??1)),actionBox=select(boxes,String(look.actionBox??1));
+  const customOrder=check(look.actionPosition!=null);
   const placement=select([['above',t('insideAbove')],['below',t('insideBelow')],['outsideAbove',t('outsideAbove')],['outsideBelow',t('outsideBelow')]],look.controlPlacement??(look.actionsFirst?'above':'below'));
   const menuSize=select([5,7,10,15,20,25].map(n=>[String(n),String(n)]),String(look.menuSize??25));
   const faqPicker=select(data.faqs.filter(entry=>entry.published).map(entry=>[entry.id,entry.question]),look.faqId||'',t('noFaqLink'));
@@ -671,7 +678,13 @@ function presentationEditor(panel,title,body){
   formats.append(label(t('linked'),linkPicker),addLink,linkArea);
   drawLinks();
   const embed=make('div','',{class:'stack'});embed.append(label(t('footer'),footer),label(t('image'),image),make('h3',t('fields')));
-  const components=make('div','',{class:'stack'});components.append(label(t('mainOrder'),bodyPosition),make('h3',t('blocks')));
+  const components=make('div','',{class:'stack'});
+  const arrangement=make('section','',{class:'v2-composition'});
+  const positions=make('div','',{class:'v2-placement'}),actionPositionFields=make('div','',{class:'v2-placement'});
+  positions.append(label(t('mainOrder'),bodyPosition),label(t('boxSelect'),bodyBox));
+  actionPositionFields.append(label(t('controlOrder'),controlOrder),label(t('boxSelect'),actionBox));
+  arrangement.append(make('h3',t('composition')),positions,label(t('customOrder'),customOrder),actionPositionFields);
+  components.append(arrangement,make('h3',t('blocks')));
   const fieldItems=[],blockItems=[];
   function columns(existing={}){
     const row=make('div','',{class:'area'});
@@ -691,19 +704,28 @@ function presentationEditor(panel,title,body){
     });
     const at=Math.min(Number(bodyPosition.value||look.bodyPosition||0),blockItems.length);
     bodyPosition.replaceChildren(...select(Array.from({length:blockItems.length+1},(_,i)=>[String(i),String(i+1)]),String(at)).children);bodyPosition.value=String(at);
+    const actionAt=Math.min(Number(controlOrder.value||look.actionPosition||0),blockItems.length+1);
+    controlOrder.replaceChildren(...select(Array.from({length:blockItems.length+2},(_,i)=>[String(i),String(i+1)]),String(actionAt)).children);controlOrder.value=String(actionAt);
     addBlock.disabled=blockItems.length>=8;
   }
   function newBlock(existing={}){
     const row=make('div','',{class:'area'});
-    const kind=select([['text',t('textBlock')],['divider',t('divider')],['image',t('imageBlock')],['section',t('sectionBlock')]],existing.kind??'text');
+    const kind=select([['text',t('textBlock')],['divider',t('divider')],['image',t('imageBlock')],['section',t('sectionBlock')],['gallery',t('galleryBlock')],['link',t('linkBlock')]],existing.kind??'text');
     const value=make('textarea',existing.value??'',{maxlength:1500}), fieldLabel=label(t('body'),value);
     const image=field(existing.image,900,'url'),imageField=label(t('embedThumbnail'),image);
     const line=check(existing.divider!==false),large=check(existing.spacing===2);
     const lineField=label(t('dividerLine'),line),largeField=label(t('dividerLarge'),large);
-    const item={kind,value,row,image,line,large};
+    const box=select(boxes,String(existing.box??1));
+    const media=make('textarea',(existing.items??[]).map(item=>item.url).join('\n'),{maxlength:9000});
+    const mediaField=label(t('galleryUrls'),media);
+    const linkText=field(existing.label,80),linkUrl=field(existing.url,900,'url');
+    const linkFields=make('fieldset');linkFields.append(label(t('buttonLabel'),linkText),label(t('linkUrl'),linkUrl));
+    const item={kind,value,row,image,line,large,box,media,linkText,linkUrl,existing};
     const change=()=>{
       const divider=kind.value==='divider';
-      fieldLabel.hidden=divider;lineField.hidden=largeField.hidden=!divider;
+      const gallery=kind.value==='gallery',link=kind.value==='link';
+      mediaField.hidden=media.disabled=!gallery;linkFields.hidden=linkFields.disabled=!link;
+      fieldLabel.hidden=divider||gallery||link;lineField.hidden=largeField.hidden=!divider;
       imageField.hidden=image.disabled=kind.value!=='section';
       fieldLabel.firstChild.textContent=t(kind.value==='image'?'image':'body');
     };
@@ -719,14 +741,15 @@ function presentationEditor(panel,title,body){
     controls.append(item.up,item.down,click(t('removeItem'),()=>{
       blockItems.splice(blockItems.indexOf(item),1);row.remove();syncBlocks();preview();
     }));
-    row.append(label(t('blockKind'),kind),fieldLabel,imageField,lineField,largeField,controls);
+    row.append(label(t('blockKind'),kind),label(t('boxSelect'),box),fieldLabel,imageField,mediaField,linkFields,lineField,largeField,controls);
     blockItems.push(item);syncBlocks();
-    fieldLabel.hidden=kind.value==='divider';
+    change();
   }
   const blockSet=make('div',''), addBlock=click(t('addBlock'),()=>newBlock());
   components.append(blockSet,addBlock);
   for(const item of look.blocks||[])newBlock(item);
   syncBlocks();bodyPosition.value=String(Math.min(look.bodyPosition??0,blockItems.length));
+  controlOrder.value=String(Math.min(look.actionPosition??0,blockItems.length+1));
   formats.append(embed,components);
   const inside=detail('internal');
   const insideMessage=make('textarea',look.inside?.message??'',{maxlength:900});
@@ -754,7 +777,8 @@ function presentationEditor(panel,title,body){
     return {layout:layout.value,navigation:navigation.value,links:links.slice(),color:color.value,title:heading.value,faqId:faqPicker.value,
       footer:footer.value,image:image.value,author:author.value,authorUrl:authorUrl.value,authorIcon:authorIcon.value,thumbnail:thumbnail.value,footerIcon:footerIcon.value,extras:extraCards.map(item=>item.read()),placeholder:placeholder.value,description:description.value,opener:opener(),
       fields:fieldItems.map(x=>({name:x.name.value,value:x.value.value,inline:x.inline.checked})),
-      blocks:blockItems.map(x=>({kind:x.kind.value,value:x.value.value,image:x.image.value,divider:x.line.checked,spacing:x.large.checked?2:1})),bodyPosition:Number(bodyPosition.value),controlPlacement:placement.value,menuSize:Number(menuSize.value),linkedLooks:Object.fromEntries(links.filter(id=>linkLooks[id]).map(id=>[id,linkLooks[id]])),
+      blocks:blockItems.map(x=>({kind:x.kind.value,box:Number(x.box.value),value:x.value.value,image:x.image.value,divider:x.line.checked,spacing:x.large.checked?2:1,
+        label:x.linkText.value,url:x.linkUrl.value,items:x.media.value.split(/\r?\n/).map(url=>url.trim()).filter(Boolean).map(url=>x.existing.items?.find(item=>item.url===url)??{url})})),bodyPosition:Number(bodyPosition.value),bodyBox:Number(bodyBox.value),actionPosition:customOrder.checked?Number(controlOrder.value):null,actionBox:Number(actionBox.value),controlPlacement:placement.value,menuSize:Number(menuSize.value),linkedLooks:Object.fromEntries(links.filter(id=>linkLooks[id]).map(id=>[id,linkLooks[id]])),
       inside:{layout:insideLayout.value,message:insideMessage.value,title:insideTitle.value,footer:insideFooter.value,image:insideImage.value,
         color:inherited.checked?'':insideColor.value,actionsFirst:insideFirst.checked,claim:claim(),rename:rename(),close:close(),requestClose:look.inside?.requestClose??{enabled:false}}};
   }
@@ -904,15 +928,16 @@ function presentationEditor(panel,title,body){
   function preview(){
     const p=dataValue();
     const usingV2=p.layout==='v2';
+    actionPositionFields.hidden=!customOrder.checked;placementField.hidden=!usingV2||customOrder.checked;
     modes.forEach((mode,index)=>mode.setAttribute('aria-pressed',String(index===Number(usingV2))));
     embedCard.style.setProperty('--embed-accent',p.color);
     embed.hidden=embedMeta.hidden=extrasSection.hidden=duplicate.hidden=embedImage.hidden=embedFooter.hidden=image.disabled=usingV2;
     for(const input of [authorUrl,authorIcon,thumbnail,footerIcon])input.disabled=usingV2;
     footerIcon.closest('label').hidden=usingV2;
-    components.hidden=publicPlacement.hidden=!usingV2;menuDetails.hidden=p.navigation!=='menu';
+    components.hidden=!usingV2;menuDetails.hidden=p.navigation!=='menu';
     canvas.style.borderColor=p.color;
     publicFormat.textContent=t(p.layout==='v2'?'v2':'embed')+' · '+t(p.navigation==='menu'?'menuMode':'buttonMode');
-    const message=[];
+    const message=[],steps=[];
     if(!usingV2){
       const stack=make('div','',{class:'embed-stack'});
       stack.append(renderEmbed({...p,title:p.title||title.value||t('name'),body:body.value||t('body')}),...p.extras.map(renderEmbed));
@@ -922,13 +947,16 @@ function presentationEditor(panel,title,body){
       const blocks=p.blocks.map(block=>{
         if(block.kind==='divider')return make('hr','',{class:'v2-spacer'+(block.divider?' line':'')+(block.spacing===2?' large':'')});
         if(block.kind==='image')return previewImage(block.value);
+        if(block.kind==='gallery'){const gallery=make('div','',{class:'v2-gallery-preview'});for(const item of block.items){const picture=previewImage(item.url);if(picture){if(item.description)picture.alt=item.description;gallery.append(picture)}}return gallery}
+        if(block.kind==='link'){try{const url=new URL(block.url);if(url.protocol==='https:')return make('a',block.label||t('linkBlock'),{class:'button quiet',href:url.href,target:'_blank',rel:'noopener noreferrer'})}catch{}return make('span',t('linkBlock'))}
         if(block.kind==='section'){
           const section=make('div','',{class:'v2-section-preview'}),thumb=previewImage(block.image);
           section.append(discordText(block.value));if(thumb)section.append(thumb);return section;
         }
         return discordText(block.value);
       });
-      blocks.splice(p.bodyPosition,0,content);message.push(...blocks.filter(Boolean));
+      steps.push(...blocks.map((node,index)=>({box:p.blocks[index].box,node})));
+      steps.splice(p.bodyPosition,0,{box:p.bodyBox,node:content});
     }
     const fallback=p.navigation==='menu'||links.length?title.value||t('name'):t('previewOpenTicket');
     const items=[[p.opener,fallback],...links.map(id=>{
@@ -953,12 +981,21 @@ function presentationEditor(panel,title,body){
     }else for(const [button,label] of items)bar.append(previewButton(button,label));
     if(p.faqId)bar.append(previewButton({style:2},t('faqButton')));
     if(p.layout!=='v2'){canvas.replaceChildren(...message,bar);return}
-    const frame=make('div','',{class:'embed-preview-card v2-message-stack'});
-    frame.style.setProperty('--preview-accent',p.color);
-    frame.append(...message);
-    if(p.controlPlacement==='above')frame.prepend(bar);
-    if(p.controlPlacement==='below')frame.append(bar);
-    canvas.replaceChildren(...(p.controlPlacement==='outsideAbove'?[bar,frame]:p.controlPlacement==='outsideBelow'?[frame,bar]:[frame]));
+    const above=p.controlPlacement==='above'||p.controlPlacement==='outsideAbove';
+    const box=p.actionPosition===null?(p.controlPlacement.startsWith('outside')?0:1):p.actionBox;
+    steps.splice(p.actionPosition??(above?0:steps.length),0,{box,node:bar});
+    const composition=make('div','',{class:'v2-flow-frame'});
+    let frame=null,activeBox=null;
+    for(const step of steps){
+      if(!step.node)continue;
+      if(!step.box){composition.append(step.node);frame=null;activeBox=null;continue}
+      if(activeBox!==step.box){
+        frame=make('div','',{class:'embed-preview-card v2-message-stack'});
+        frame.style.setProperty('--preview-accent',p.color);composition.append(frame);activeBox=step.box;
+      }
+      frame.append(step.node);
+    }
+    canvas.replaceChildren(composition);
 
   }
   function previewInside(){
