@@ -208,12 +208,20 @@ createServer(async(req,res)=>{
       }
       return send(200,{report,latencies,demand,ages,reopened,eligible});
     }
-    if(method==='GET'&&!action)return send(200,{
+    if(method==='GET'&&!action){
+      const hasTickets=db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tickets'").get();
+      const counts=hasTickets?db.prepare('SELECT s.panel,COUNT(*) AS total FROM ticket_panel_sources s JOIN tickets t ON t.channel=s.channel WHERE t.guild=? AND t.closed IS NULL GROUP BY s.panel').all(guild):[];
+      const countsByPanel=new Map(counts.map(row=>[row.panel,row.total]));
+      const publications=db.prepare('SELECT x.panel,x.channel,x.message FROM panel_publications x JOIN web_panels p ON p.id=x.panel WHERE p.guild=? ORDER BY length(x.message),x.message').all(guild);
+      const publishedByPanel=new Map(publications.map(row=>[row.panel,row]));
+      return send(200,{
       settings,locale,channels:channels.filter(c=>[0,4,5].includes(c.type)).map(({id,name,type})=>({id,name,type})),
       roles:roles.filter(r=>r.id!==guild).map(({id,name})=>({id,name})),
       faqs:db.prepare('SELECT id,question,answer,locale,published FROM faq_entries WHERE guild=? ORDER BY question').all(guild),
-      panels:db.prepare('SELECT p.id,p.title,p.body,r.rules FROM web_panels p LEFT JOIN panel_rules r ON r.id=p.id WHERE p.guild=? ORDER BY p.title').all(guild).map(p=>({...p,rules:p.rules?JSON.parse(p.rules):{}})),queue:queue(guild)
-    });
+      panels:db.prepare('SELECT p.id,p.title,p.body,r.rules FROM web_panels p LEFT JOIN panel_rules r ON r.id=p.id WHERE p.guild=? ORDER BY p.title').all(guild).map(p=>({...p,rules:p.rules?JSON.parse(p.rules):{},
+        openCount:countsByPanel.get(p.id)??0,publication:publishedByPanel.get(p.id)??null})),queue:queue(guild)
+      });
+    }
     if(method!=='POST')throw error(405,'invalid');
     const data=await input(req);
     if(!data||typeof data!=='object'||Array.isArray(data))throw error(400,'invalid');
