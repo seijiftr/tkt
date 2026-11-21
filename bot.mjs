@@ -773,7 +773,7 @@ client.on(Events.InteractionCreate, async i => {
     }
     const choice=i.isStringSelectMenu?.()&&i.customId.startsWith('v:choose:');
     if(choice||i.isButton()&&i.customId.startsWith('v:open:')){
-      const source=choice?panelFromDb(db,i.guildId,i.customId.slice(9)):null;
+      const source=choice?panelFromDb(db,i.guildId,i.customId.slice(9).split(':')[0]):null;
       const chosen=choice?i.values[0]:i.customId.slice(7);
       if(choice&&(!source||![source.id,...(source.rules.presentation?.links??[])].includes(chosen)))
         return await privateReply(i,translated(i,'O menu mudou. Peça à equipe para publicar o painel novamente.','The menu changed. Ask staff to publish the panel again.'));
