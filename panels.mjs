@@ -4,6 +4,8 @@ export function initPanels(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS web_panels (id TEXT PRIMARY KEY, guild TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS panel_rules (id TEXT PRIMARY KEY, rules TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS panel_publications (panel TEXT NOT NULL, channel TEXT NOT NULL, message TEXT PRIMARY KEY);
+    CREATE INDEX IF NOT EXISTS publications_panel ON panel_publications(panel);
     CREATE TABLE IF NOT EXISTS ticket_panel_routes (channel TEXT PRIMARY KEY, role TEXT NOT NULL);
   `);
 }
@@ -109,8 +111,11 @@ export function panelMessage(panel,linked,locale){
 export function validateRules(value,roles,channels){
   const r=value??{};
   if(typeof r!=='object'||Array.isArray(r))throw Error('Invalid rules');
-  const role=r.role??'', category=r.category??'';
-  if(role&&(!idPattern.test(role)||!roles.some(x=>x.id===role)))throw Error('Invalid role');
+  const supportRoles=r.supportRoles??(r.role?[r.role]:[]);
+  const category=r.category??'', overflow=r.overflow??'';
+  if(!Array.isArray(supportRoles)||supportRoles.length>20||new Set(supportRoles).size!==supportRoles.length||
+      supportRoles.some(id=>!idPattern.test(id)||!roles.some(role=>role.id===id)))throw Error('Invalid role');
+  if(overflow&&(overflow===category||!channels.some(channel=>channel.id===overflow&&channel.type===4)))throw Error('Invalid overflow category');
   if(category&&(!idPattern.test(category)||!channels.some(x=>x.id===category&&x.type===4)))throw Error('Invalid category');
   const q=r.questions??[];
   if(!Array.isArray(q)||q.length>5)throw Error('Invalid questions');
@@ -123,7 +128,7 @@ export function validateRules(value,roles,channels){
     return {label:x.label.trim(),kind:x.kind,required:x.required,options:list};
   });
   const schedule=r.schedule??null;
-  if(!schedule)return {role,category,questions,schedule:null};
+  if(!schedule)return {supportRoles,category,overflow,questions,schedule:null};
   if(typeof schedule.zone!=='string'||schedule.zone.length>80||!['warn','block'].includes(schedule.outside)||!Array.isArray(schedule.days)||schedule.days.length!==7)throw Error('Invalid schedule');
   new Intl.DateTimeFormat('en',{timeZone:schedule.zone});
   const days=schedule.days.map(day=>{
@@ -133,7 +138,7 @@ export function validateRules(value,roles,channels){
   });
   const bypass=schedule.bypass??'';
   if(bypass&&(!idPattern.test(bypass)||!roles.some(x=>x.id===bypass)))throw Error('Invalid bypass role');
-  return {role,category,questions,schedule:{zone:schedule.zone,outside:schedule.outside,days,bypass}};
+  return {supportRoles,category,overflow,questions,schedule:{zone:schedule.zone,outside:schedule.outside,days,bypass}};
 }
 
 export function panelFromDb(db,guild,id) {
