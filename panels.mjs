@@ -49,11 +49,20 @@ export function validatePresentation(value,available,owner){
   if(!Array.isArray(fields)||fields.length>4)throw Error('Invalid embed fields');
   const blocks=p.blocks??[];
   if(!Array.isArray(blocks)||blocks.length>8)throw Error('Invalid component blocks');
+  const extras=p.extras??[];
+  if(!Array.isArray(extras)||extras.length>3)throw Error('Invalid extra embeds');
+  const extraEmbeds=extras.map(item=>{
+    const title=limited(item?.title??'',256),body=limited(item?.body??'',1000);
+    if(!title&&!body)throw Error('Empty embed');
+    return {title,body};
+  });
   const insideColor=p.inside?.color??'';
   if(insideColor&&!/^#[a-f0-9]{6}$/i.test(insideColor))throw Error('Invalid ticket color');
   return {
     layout:p.layout==='v2'?'v2':'embed',navigation:p.navigation==='menu'?'menu':'buttons',
-    links,color,title:limited(p.title??'',256),footer:limited(p.footer??'',256),
+    links,faqId:limited(p.faqId??'',48),color,title:limited(p.title??'',256),footer:limited(p.footer??'',256),
+    author:limited(p.author??'',256),authorUrl:httpsUrl(p.authorUrl??''),authorIcon:httpsUrl(p.authorIcon??''),
+    thumbnail:httpsUrl(p.thumbnail??''),footerIcon:httpsUrl(p.footerIcon??''),extras:extraEmbeds,
     image:httpsUrl(p.image??''),description:limited(p.description??'',100),
     opener:buttonConfig(p.opener),placeholder:limited(p.placeholder??'',150),
     fields:fields.map(f=>{
@@ -99,6 +108,12 @@ export function panelMessage(panel,linked,locale){
         label:button.label||(items.length>1?item.title:fallback),...(button.emoji?{emoji:{name:button.emoji}}:{})};
     })});
   }
+  if(p.faqId){
+    const faq={type:2,style:2,custom_id:'v:panel-faq:'+panel.id,label:locale==='en'?'Frequently asked question':'Pergunta frequente'};
+    const last=rows.at(-1);
+    if(p.navigation!=='menu'&&last?.components.length<5)last.components.push(faq);
+    else rows.push({type:1,components:[faq]});
+  }
   const color=parseInt((p.color??'#a079ec').slice(1),16);
   if(p.layout==='v2'){
     const blocks=[{type:10,content:'## '+(p.title||panel.title)+'\n'+panel.body},
@@ -107,7 +122,9 @@ export function panelMessage(panel,linked,locale){
     return {flags:32768,components:[{type:17,accent_color:color,components:p.actionsFirst?[...rows,...blocks]:[...blocks,...rows]}],allowed_mentions:{parse:[]}};
   }
   return {embeds:[{title:p.title||panel.title,description:panel.body,color,
-    ...(p.footer?{footer:{text:p.footer}}:{}),...(p.fields?.length?{fields:p.fields}:{}),...(p.image?{image:{url:p.image}}:{})}],
+    ...(p.author?{author:{name:p.author,...(p.authorUrl?{url:p.authorUrl}:{}),...(p.authorIcon?{icon_url:p.authorIcon}:{})}}:{}),
+    ...(p.thumbnail?{thumbnail:{url:p.thumbnail}}:{}),
+    ...(p.footer?{footer:{text:p.footer,...(p.footerIcon?{icon_url:p.footerIcon}:{})}}:{}),...(p.fields?.length?{fields:p.fields}:{}),...(p.image?{image:{url:p.image}}:{})},...(p.extras??[]).map(item=>({color,...(item.title?{title:item.title}:{}),...(item.body?{description:item.body}:{})}))],
     components:rows,allowed_mentions:{parse:[]}};
 }
 
@@ -131,7 +148,7 @@ export function validateRules(value,roles,channels){
   };
   const policy={required:roleIds(access.required??[]),blocked:roleIds(access.blocked??[]),all:access.all===true,
     accountDays:minimumDays(access.accountDays??0),memberDays:minimumDays(access.memberDays??0)};
-  const behavior={enabled,naming,pinOpening,logChannel,access:policy};
+  const behavior={enabled,naming,pinOpening,logChannel,access:policy,formEnabled:r.formEnabled!==false};
   const supportRoles=r.supportRoles??(r.role?[r.role]:[]);
   const category=r.category??'', overflow=r.overflow??'';
   if(!Array.isArray(supportRoles)||supportRoles.length>20||new Set(supportRoles).size!==supportRoles.length||
@@ -151,7 +168,7 @@ export function validateRules(value,roles,channels){
     const min=selector?(x.min??Number(x.required)):0,max=selector?(x.max??1):1;
     if(!Number.isInteger(min)||!Number.isInteger(max)||min<Number(selector&&x.required)||max<1||max>25||min>max||
       x.kind==='choice'&&max>list.length)throw Error('Invalid selection limits');
-    return {label:x.label.trim(),kind:x.kind,required:x.required,options:list,min,max};
+    return {label:x.label.trim(),description:limited(x.description??'',100),kind:x.kind,required:x.required,options:list,min,max};
 
   });
   if(questions.some(q=>q.kind==='notice')&&(questions.some(q=>q.kind==='notice'&&!q.text)||questions.every(q=>q.kind==='notice')))throw Error('Add a response field and fill the notice');
@@ -175,7 +192,7 @@ export function panelFromDb(db,guild,id) {
   return panel;
 }
 export function revision(panel){
-  return createHash('sha256').update(JSON.stringify(panel.rules.questions??[])).digest('hex').slice(0,10);
+  return createHash('sha256').update(JSON.stringify([panel.rules.formEnabled!==false,panel.rules.questions??[]])).digest('hex').slice(0,10);
 }
 export function availability(schedule,hasBypass=false,now=new Date()){
   if(!schedule||hasBypass)return 'open';
