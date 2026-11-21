@@ -32,6 +32,7 @@ const cookie=(key,value,age)=>key+'='+value+'; Path=/; HttpOnly; SameSite=Lax; M
 const authReady=Boolean(DISCORD_TOKEN&&DISCORD_CLIENT_ID&&DISCORD_CLIENT_SECRET);
 const error=(status,code)=>Object.assign(new Error(code),{status,code});
 
+const publishing=new Set();
 async function discord(path,auth,options={}) {
   const response=await fetch('https://discord.com/api/v10'+path,{
     ...options,headers:{...options.headers,Authorization:auth},signal:AbortSignal.timeout(10000)
@@ -39,9 +40,9 @@ async function discord(path,auth,options={}) {
   if (!response.ok) {
     const result=await response.json().catch(()=>null);
     console.warn('Discord API',options.method||'GET',path.split('?')[0].replace(/[0-9]{17,20}/g,':id'),response.status,result?.code??'');
-    throw error(response.status===403||response.status===404?403:502,'discord');
+    throw Object.assign(error(response.status===403||response.status===404?403:502,'discord'),{discordStatus:response.status,discordCode:result?.code});
   }
-  return response.json();
+  return response.status===204?null:response.json();
 }
 async function input(req) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw error(415,'invalid');
@@ -270,6 +271,7 @@ createServer(async(req,res)=>{
     }
     if(action==='deletepanel'){
       const id=text(data.id,80,true);
+      if(publishing.has(id))throw error(409,'publishBusy');
       db.exec('BEGIN IMMEDIATE');
       try{
         if(!db.prepare('DELETE FROM web_panels WHERE guild=? AND id=?').run(guild,id).changes)throw error(404,'invalid');
@@ -290,13 +292,27 @@ createServer(async(req,res)=>{
       if(!settings||!isId(data.channel)||!channels.some(c=>c.id===data.channel&&[0,5].includes(c.type)))throw error(400,'invalid');
       const panel=typeof data.id==='string'&&panelFromDb(db,guild,data.id);
       if(!panel)throw error(404,'invalid');
-      const linked=(panel.rules.presentation?.links??[]).map(id=>panelFromDb(db,guild,id)).filter(Boolean);
-      const msg=await discord('/channels/'+data.channel+'/messages',bot,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(panelMessage(panel,linked,locale))
-      });
-      audit(guild,session,'panel.publish');
-      return send(200,{ok:true,url:'https://discord.com/channels/'+guild+'/'+data.channel+'/'+msg.id});
+      if(publishing.has(panel.id))throw error(409,'publishBusy');
+      publishing.add(panel.id);
+      try{
+        const linked=(panel.rules.presentation?.links??[]).map(id=>panelFromDb(db,guild,id)).filter(Boolean);
+        const msg=await discord('/channels/'+data.channel+'/messages',bot,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(panelMessage(panel,linked,locale))
+        });
+        db.prepare('INSERT INTO panel_publications VALUES(?,?,?)').run(panel.id,data.channel,msg.id);
+        let cleanupPending=false;
+        for(const old of db.prepare('SELECT channel,message FROM panel_publications WHERE panel=? AND message<>?').all(panel.id,msg.id)){
+          try{
+            await discord('/channels/'+old.channel+'/messages/'+old.message,bot,{method:'DELETE'});
+          }catch(e){
+            if(e.discordStatus!==404||![10003,10008].includes(e.discordCode)){cleanupPending=true;continue}
+          }
+          db.prepare('DELETE FROM panel_publications WHERE message=?').run(old.message);
+        }
+        audit(guild,session,'panel.publish');
+        return send(200,{ok:true,cleanupPending,url:'https://discord.com/channels/'+guild+'/'+data.channel+'/'+msg.id});
+      }finally{publishing.delete(panel.id)}
     }
     throw error(404,'invalid');
   }catch(e){if(e.status>0)return send(e.status,{error:e.code});console.error('Dashboard request failed:',e.name);return send(500,{error:'server'})}
