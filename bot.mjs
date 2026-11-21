@@ -1,13 +1,13 @@
 import {
   Client, Events, GatewayIntentBits, PermissionFlagsBits as Permission,
   ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
-  ModalBuilder, TextDisplayBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, LabelBuilder, StringSelectMenuBuilder, FileUploadBuilder, CheckboxBuilder,
+  ModalBuilder, TextDisplayBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, LabelBuilder, StringSelectMenuBuilder, UserSelectMenuBuilder, RoleSelectMenuBuilder, ChannelSelectMenuBuilder, FileUploadBuilder, CheckboxBuilder,
   AttachmentBuilder, MessageFlags,
 } from 'discord.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {findFaq,initFaq} from './faq.mjs';
-import {availability,initPanels,panelFromDb,revision} from './panels.mjs';
+import {availability,initPanels,panelFromDb,revision,selectorKinds} from './panels.mjs';
 
 const { DISCORD_TOKEN, DISCORD_GUILD_ID, DATABASE_PATH = 'tkt.sqlite' } = process.env;
 if (!DISCORD_TOKEN) throw new Error('Defina DISCORD_TOKEN no arquivo .env.');
@@ -212,6 +212,12 @@ function checkAvailability(i,panel){
   if(state==='closed'&&schedule.outside==='block')throw new Error(translated(i,'Este painel abre tickets apenas durante o horário de atendimento.','This panel accepts tickets only during business hours.'));
   return warning;
 }
+const entitySelectors={
+  user:{builder:UserSelectMenuBuilder,label:'setUserSelectMenuComponent',field:'getSelectedUsers',mention:'@'},
+  role:{builder:RoleSelectMenuBuilder,label:'setRoleSelectMenuComponent',field:'getSelectedRoles',mention:'@&'},
+  channel:{builder:ChannelSelectMenuBuilder,label:'setChannelSelectMenuComponent',field:'getSelectedChannels',mention:'#'}
+};
+function selectorRange(question){return {min:question.min??Number(question.required),max:question.max??1}}
 function panelModal(i,panel){
   const form=panel.rules.questions??[];
   const title=(translated(i,'Abrir','Open')+' · '+panel.title).slice(0,45);
@@ -224,10 +230,15 @@ function panelModal(i,panel){
     if(question.kind==='notice'){modal.addTextDisplayComponents(new TextDisplayBuilder().setContent(question.text));continue}
     const label=new LabelBuilder().setLabel(question.label);
     const id='q'+index;
-    if(question.kind==='choice'){
-      const menu=new StringSelectMenuBuilder().setCustomId(id).setRequired(question.required).setMinValues(question.min??Number(question.required)).setMaxValues(question.max??1)
-        .addOptions(question.options.map((option,n)=>({label:option,value:String(n)})));
-      label.setStringSelectMenuComponent(menu);
+    if(selectorKinds.has(question.kind)){
+      const entity=entitySelectors[question.kind],{min,max}=selectorRange(question);
+      const menu=entity?new entity.builder():new StringSelectMenuBuilder();
+      menu.setCustomId(id).setRequired(question.required).setMinValues(min).setMaxValues(max);
+      if(entity)label[entity.label](menu);
+      else{
+        menu.addOptions(question.options.map((option,n)=>({label:option,value:String(n)})));
+        label.setStringSelectMenuComponent(menu);
+      }
     }else if(question.kind==='file'){
       label.setFileUploadComponent(new FileUploadBuilder().setCustomId(id).setRequired(question.required)
         .setMinValues(question.required?1:0).setMaxValues(1));
@@ -249,11 +260,12 @@ function panelAnswers(i,panel){
     const id='q'+index;
     let value='';
     if(i.fields.fields.has(id)){
-      if(question.kind==='choice'){
-        const selected=i.fields.getStringSelectValues(id);
-        if(selected.length<(question.min??Number(question.required))||selected.length>(question.max??1))
+      if(selectorKinds.has(question.kind)){
+        const entity=entitySelectors[question.kind],{min,max}=selectorRange(question);
+        const selected=entity?[...(i.fields[entity.field](id)?.keys()??[])]:i.fields.getStringSelectValues(id);
+        if(selected.length<min||selected.length>max)
           throw Error(translated(i,'Confira a quantidade de opções selecionadas.','Check the number of selected options.'));
-        value=selected.map(option=>question.options[Number(option)]).filter(Boolean).join(', ').slice(0,1000);
+        value=selected.map(option=>entity?'<'+entity.mention+option+'>':question.options[Number(option)]).filter(Boolean).join(', ').slice(0,1000);
       }
       else if(question.kind==='checkbox'){
         const checked=i.fields.getCheckbox(id);
