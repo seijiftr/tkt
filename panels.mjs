@@ -90,22 +90,27 @@ export function validatePresentation(value,available,owner){
     ...details,links,linkedLooks:Object.fromEntries(links.filter(id=>p.linkedLooks?.[id]).map(id=>{
       const look=p.linkedLooks[id];return [id,{...buttonConfig(look),description:limited(look.description??'',100)}];
     })),menuSize:Number.isInteger(p.menuSize)&&p.menuSize>=5&&p.menuSize<=25?p.menuSize:25,
+    actionPosition:Number.isInteger(p.actionPosition)&&p.actionPosition>=0?Math.min(p.actionPosition,blocks.length+1):null,
+    bodyBox:[0,1,2,3].includes(p.bodyBox)?p.bodyBox:1,actionBox:[0,1,2,3].includes(p.actionBox)?p.actionBox:1,
     bodyPosition:Number.isInteger(p.bodyPosition)&&p.bodyPosition>=0?Math.min(p.bodyPosition,blocks.length):0,
     controlPlacement:['above','below','outsideAbove','outsideBelow'].includes(p.controlPlacement)?p.controlPlacement:p.actionsFirst?'above':'below',
     faqId:limited(p.faqId??'',48),color,title:limited(p.title??'',256),extras:extraEmbeds,description:limited(p.description??'',100),
     opener:buttonConfig(p.opener),placeholder:limited(p.placeholder??'',150),
     blocks:blocks.map(b=>{
-      if(b.kind==='divider')return {kind:b.kind,spacing:b.spacing===2?2:1,divider:b.divider!==false};
-      if(b.kind==='section'){const value=limited(b.value,1500),image=httpsUrl(b.image??'');if(!value||!image)throw Error('Empty section');return {kind:b.kind,value,image}}
+      const box=[0,1,2,3].includes(b.box)?b.box:1;
+      if(b.kind==='gallery'){if(!Array.isArray(b.items)||b.items.length<1||b.items.length>10)throw Error('Invalid gallery');const items=b.items.map(item=>({url:httpsUrl(item.url??''),description:limited(item.description??'',1024),spoiler:item.spoiler===true}));if(items.some(item=>!item.url))throw Error('Empty gallery media');return {kind:b.kind,box,items}}
+      if(b.kind==='link'){const url=httpsUrl(b.url??''),label=limited(b.label??'',80);if(!url||!label)throw Error('Invalid link button');return {kind:b.kind,box,url,label}}
+      if(b.kind==='divider')return {kind:b.kind,box,spacing:b.spacing===2?2:1,divider:b.divider!==false};
+      if(b.kind==='section'){const value=limited(b.value,1500),image=httpsUrl(b.image??'');if(!value||!image)throw Error('Empty section');return {kind:b.kind,box,value,image}}
       if(b.kind==='image'){
         const value=httpsUrl(b.value);
         if(!value)throw Error('Empty image URL');
-        return {kind:b.kind,value};
+        return {kind:b.kind,box,value};
       }
       if(b.kind!=='text')throw Error('Invalid component block');
       const value=limited(b.value,1500);
       if(!value)throw Error('Empty block');
-      return {kind:'text',value};
+      return {kind:'text',box,value};
     }),
     actionsFirst:p.actionsFirst===true,
     inside:{layout:p.inside?.layout==='v2'?'v2':'embed',message:limited(p.inside?.message??'',900),
@@ -150,17 +155,32 @@ export function panelMessage(panel,linked,locale){
   const color=parseInt((p.color??'#a079ec').slice(1),16);
   if(p.layout==='v2'){
     const blocks=(p.blocks??[]).map(b=>{
+      if(b.kind==='gallery')return {type:12,items:b.items.map(item=>({media:{url:item.url},...(item.description?{description:item.description}:{}),...(item.spoiler?{spoiler:true}:{})}))};
+      if(b.kind==='link')return {type:1,components:[{type:2,style:5,url:b.url,label:b.label}]};
       if(b.kind==='divider')return {type:14,divider:b.divider!==false,spacing:b.spacing??1};
       if(b.kind==='image')return {type:12,items:[{media:{url:b.value}}]};
       if(b.kind==='section')return {type:9,components:[{type:10,content:b.value}],accessory:{type:11,media:{url:b.image}}};
       return {type:10,content:b.value};
     });
-    blocks.splice(p.bodyPosition??0,0,{type:10,content:'## '+(p.title||panel.title)+'\n'+panel.body});
+    const steps=blocks.map((node,index)=>({box:p.blocks[index].box??1,nodes:[node]}));
+    steps.splice(p.bodyPosition??0,0,{box:p.bodyBox??1,nodes:[{type:10,content:'## '+(p.title||panel.title)+'\n'+panel.body}]});
     const place=p.controlPlacement??(p.actionsFirst?'above':'below');
-    if(place==='above')blocks.unshift(...rows);
-    if(place==='below')blocks.push(...rows);
-    const container={type:17,accent_color:color,components:blocks};
-    const components=place==='outsideAbove'?[...rows,container]:place==='outsideBelow'?[container,...rows]:[container];
+    const start=place==='above'||place==='outsideAbove';
+    const box=p.actionPosition!=null?p.actionBox:place.startsWith('outside')?0:1;
+    steps.splice(p.actionPosition??(start?0:steps.length),0,{box:box??1,nodes:rows});
+    const components=[];
+    let active=null;
+    for(const step of steps){
+      if(!step.nodes.length)continue;
+      if(!step.box){components.push(...step.nodes);active=null;continue}
+      if(active?.box!==step.box){
+        active={box:step.box,components:[]};
+        components.push({type:17,accent_color:color,components:active.components});
+      }
+      active.components.push(...step.nodes);
+    }
+    const count=items=>items.reduce((n,item)=>n+1+count(item.components??[])+(item.accessory?1:0),0);
+    if(count(components)>40)throw Error('Discord Components V2 limit exceeded');
     return {flags:32768,components,allowed_mentions:{parse:[]}};
   }
   return {embeds:[discordEmbed(p,p.title||panel.title,panel.body),...(p.extras??[]).map(item=>discordEmbed(item,item.title,item.body,p.color))],
