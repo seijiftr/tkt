@@ -83,6 +83,7 @@ body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#10
 .panel-editor-area .editor-preview-slot{top:133px}.editor-section{margin-bottom:12px}
 .editor-section h3{margin:0 0 10px}.editor-section select{width:100%}
 @media(max-width:690px){.panel-editor-area .panel-tabs{position:relative;top:auto}.panel-editor-area .panel-pages{padding:13px}.editor-publish{width:100%}}
+dialog{background:#221632;color:var(--ink);border:1px solid #79569d;border-radius:14px;padding:22px;max-width:min(530px,90vw)}dialog::backdrop{background:#0a0610bb}dialog .actions{margin:12px 0}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -129,8 +130,11 @@ Object.assign(lex['pt-BR'],{openingTab:'Embed',insideTab:'Mensagens',formTab:'Fo
 Object.assign(lex.en,{openingTab:'Embed',insideTab:'Messages',formTab:'Forms',rolesTab:'Roles',scheduleTab:'Availability',loggingTab:'Logging',pinOpening:'Pin opening message',naming:'Channel naming',nameArea:'Panel name',nameMember:'Panel and username',requiredRoles:'Required roles',blockedRoles:'Blocked roles',allRoles:'Require every selected role',accountDays:'Minimum account age in days',memberDays:'Minimum server membership in days',panelLogs:'Private panel log channel',panelLogNote:'New tickets send transcripts to this channel. Leave empty to use the server default.',resetPanel:'Discard changes'});
 Object.assign(lex['pt-BR'],{notice:'Texto informativo',noticeText:'Texto mostrado antes das respostas',minChoices:'Mínimo de opções',maxChoices:'Máximo de opções',duplicateQuestion:'Duplicar campo'});
 Object.assign(lex.en,{notice:'Text display',noticeText:'Text shown before answers',minChoices:'Minimum selections',maxChoices:'Maximum selections',duplicateQuestion:'Duplicate field'});
+Object.assign(lex['pt-BR'],{user:'Seletor de usuários',roleSelect:'Seletor de cargos',channelSelect:'Seletor de canais',templates:'Usar modelo',templateSupport:'Suporte geral',templateBug:'Relatar erro',templateBilling:'Financeiro',templateReport:'Denunciar conduta',templateClose:'Voltar aos painéis',templateMessage:'Selecione a opção abaixo para abrir um atendimento.',templateExplain:'Descreva sua solicitação',templateSteps:'Como reproduzir o problema?',templateBillingQ:'Qual é sua dúvida sobre a cobrança?',templateReportQ:'O que aconteceu?'});
+Object.assign(lex.en,{user:'User picker',roleSelect:'Role picker',channelSelect:'Channel picker',templates:'Use a template',templateSupport:'General support',templateBug:'Bug report',templateBilling:'Billing',templateReport:'Report misconduct',templateClose:'Back to panels',templateMessage:'Select the option below to open a ticket.',templateExplain:'Describe your request',templateSteps:'How can we reproduce the problem?',templateBillingQ:'What is your billing question?',templateReportQ:'What happened?'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
+let templateDraft=null;
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
 let account=null,ready=false,demo=false,current='home',guild='',data=null,panelId='',faqId='',days=7,request=0;
 const t=key=>lex[language][key]||lex[language].fail;
@@ -156,6 +160,7 @@ function sample(){
 }
 const navItems=[['home','◈'],['queue','▤'],['panels','▦'],['faq','?'],['settings','⚙'],['analytics','▥']];
 function navigate(key){
+  templateDraft=null;
   current=key;panelEditing=false;panelId='';faqId='';status();render();
   $('nav').querySelector('[aria-pressed="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
 }
@@ -285,7 +290,7 @@ async function save(action,body){
     if(action==='publish'){
       const link=make('a',t('visit'),{href:result.url,target:'_blank',rel:'noopener noreferrer'});
       $('status').replaceChildren(document.createTextNode(t(result.cleanupPending?'cleanupPending':'sent')+' '),link);
-    }else{panelId=action==='panel'?result.id||body.id:'';faqId='';await loadGuild();if(data)status('saved')}
+    }else{if(action==='panel')templateDraft=null;panelId=action==='panel'?result.id||body.id:'';faqId='';await loadGuild();if(data)status('saved')}
   }catch(e){status(e.message)}
 }
 function extraPanelFields(panel){
@@ -341,14 +346,15 @@ function extraPanelFields(panel){
   function addQuestion(value={},position=fields.length){
     const card=make('div','',{class:'area'});
     const title=make('input','',{maxlength:45,required:'',value:value.label||''});
-    const kind=select(['short','long','choice','checkbox','file','notice'].map(k=>[k,t(k)]),value.kind||'short');
+    const kind=select(['short','long','choice','user','role','channel','checkbox','file','notice'].map(k=>[k,t({role:'roleSelect',channel:'channelSelect'}[k]??k)]),value.kind||'short');
     const titleField=label(t('question'),title);
     const info=make('textarea',value.text||'',{maxlength:1000});
     const infoField=label(t('noticeText'),info);
     const choices=make('textarea',(value.options||[]).join('\n'));
     const min=make('input','',{type:'number',min:0,max:25,step:1,value:value.min??Number(value.required??true)});
     const max=make('input','',{type:'number',min:1,max:25,step:1,value:value.max??1});
-    const choiceFields=make('fieldset');choiceFields.append(label(t('options'),choices),label(t('minChoices'),min),label(t('maxChoices'),max));
+    const choiceFields=make('fieldset'),choiceList=label(t('options'),choices);
+    choiceFields.append(choiceList,label(t('minChoices'),min),label(t('maxChoices'),max));
     const required=make('input','',{type:'checkbox'});required.checked=value.required??true;
     const checkbox=label(t('required'),required);
     const read=()=>({label:title.value,kind:kind.value,required:kind.value!=='notice'&&required.checked,text:info.value,
@@ -359,7 +365,8 @@ function extraPanelFields(panel){
       const notice=kind.value==='notice';
       titleField.hidden=title.disabled=checkbox.hidden=notice;
       infoField.hidden=info.disabled=!notice;info.required=notice;
-      choiceFields.hidden=choiceFields.disabled=kind.value!=='choice';choices.required=!choiceFields.hidden;
+      choiceFields.hidden=choiceFields.disabled=!['choice','user','role','channel'].includes(kind.value);
+      choiceList.hidden=choices.disabled=kind.value!=='choice';choices.required=!choiceList.hidden;
     };
     kind.onchange=sync;sync();
     function move(delta){
@@ -730,14 +737,24 @@ async function deletePanel(panel,remove){
 function panelsPage(){
   const layout=make('div','',{class:'panel-workbench'}),list=block(t('panels')),form=block(t(panelId?'edit':'add'));
   list.classList.add('panel-list');
-  const openEditor=id=>{panelId=id;panelEditing=true;render()};
+  const openEditor=(id,draft=null)=>{templateDraft=draft;panelId=id;panelEditing=true;render()};
   if(!panelEditing){
     const directory=make('div','',{class:'panel-directory'});
     const toolbar=make('div','',{class:'panel-toolbar'});
     const search=make('input','',{type:'search',placeholder:t('panelSearch'),'aria-label':t('panelSearch')});
     const filter=select([['all',t('all')],['active',t('panelActive')],['paused',t('panelPaused')]],'all');
     filter.setAttribute('aria-label',t('panelState'));
-    toolbar.append(search,filter,click(t('add'),()=>openEditor(''),{class:'primary'}));
+    const dialog=make('dialog','',{'aria-label':t('templates')});
+    const choices=make('div','',{class:'actions'});
+    for(const [key,prompt] of [['templateSupport','templateExplain'],['templateBug','templateSteps'],['templateBilling','templateBillingQ'],['templateReport','templateReportQ']]){
+      choices.append(click(t(key),()=>{
+        dialog.close();
+        openEditor('',{title:t(key),body:t('templateMessage'),rules:{questions:[{kind:'long',label:t(prompt),required:true}]}});
+      }));
+    }
+    dialog.append(make('h2',t('templates')),choices,click(t('templateClose'),()=>dialog.close(),{class:'quiet'}));
+    toolbar.append(search,filter,click(t('templates'),()=>dialog.showModal()),click(t('add'),()=>openEditor(''),{class:'primary'}));
+    list.append(dialog);
     function draw(){
       const query=search.value.trim().toLocaleLowerCase(language);
       const matched=data.panels.filter(panel=>{
@@ -765,7 +782,7 @@ function panelsPage(){
     search.oninput=filter.onchange=draw;draw();
     list.append(toolbar,directory);layout.append(list);return layout;
   }
-  const panel=data.panels.find(p=>p.id===panelId);
+  const panel=data.panels.find(p=>p.id===panelId)??templateDraft;
   const title=make('input','',{maxlength:80,required:'',value:panel?.title||''});
   const body=make('textarea',panel?.body||'',{maxlength:1000,required:''});
   const fields=extraPanelFields(panel),presentation=presentationEditor(panel,title,body);
@@ -805,9 +822,9 @@ function panelsPage(){
   const opening=presentation.formats;
   for(const section of [fields.routing,fields.questions,fields.hours,presentation.formats,presentation.inside])section.open=true;
   const publication=make('div','',{class:'editor-publish'});
-  if(!panel||demo)publication.append(make('p',t(!panel?'noPublication':'demoMode'),{class:'muted'}));
+  if(!panelId||demo)publication.append(make('p',t(!panelId?'noPublication':'demoMode'),{class:'muted'}));
   let updatePublication=()=>{};
-  if(panel&&!demo){
+  if(panelId&&!demo){
     const dest=select(data.channels.filter(c=>c.type!==4).map(c=>[c.id,'# '+c.name]),panel.publication?.channel||'',t('choose'));
     const confirmation=make('div','',{class:'editor-publish-confirm'});confirmation.hidden=true;
     const publish=click(t('publish'),()=>{confirmation.hidden=false;confirmButton.focus()});
@@ -856,7 +873,7 @@ function panelsPage(){
   const strip=make('div','',{class:'save-strip'});strip.append(note,click(t('resetPanel'),()=>{if(isDirty()&&window.confirm(t('changes')+'.'))render()},{class:'quiet'}),button);
   const values=()=>({id:panelId,title:title.value,body:body.value,rules:{...fields.value(),naming:naming.value,pinOpening:pin.checked,logChannel:logChannel.value,access:{required:[...required].sort(),blocked:[...blocked].sort(),all:all.checked,accountDays:Number(accountDays.value),memberDays:Number(memberDays.value)},presentation:presentation.value()}});
   const baseline=JSON.stringify(values());
-  const isDirty=()=>JSON.stringify(values())!==baseline;
+  const isDirty=()=>Boolean(templateDraft)||JSON.stringify(values())!==baseline;
   function refresh(){
     const dirty=isDirty();
     note.textContent=t(dirty?'changes':'savedPanel');
@@ -873,19 +890,19 @@ function panelsPage(){
     if(demo){
       item.id ||= String(Date.now());
       data.panels=data.panels.filter(p=>p.id!==item.id).concat(item);
-      panelId=item.id;status('saved');render();return;
+      templateDraft=null;panelId=item.id;status('saved');render();return;
     }
     saving=true;refresh();
-    try{await save('panel',item)}finally{saving=false;refresh()}
+    try{await save('panel',item);if(panelId)templateDraft=null}finally{saving=false;refresh()}
   };
   const head=make('div','',{class:'panel-editor-head'});
   const back=click('‹ '+t('panels'),()=>{
     if(isDirty()&&!window.confirm(t('changes')+'.'))return;
-    panelEditing=false;panelId='';render();
+    templateDraft=null;panelEditing=false;panelId='';render();
   },{class:'quiet'});
   const tools=make('div','',{class:'editor-title-tools'});tools.append(back,make('h2',panel?.title||t('add')));
   head.append(tools,publication);
-  if(panel){
+  if(panelId){
     const remove=click(t('deletePanel'),()=>deletePanel(panel,remove),{class:'secondary'});
     tools.append(remove);
   }
