@@ -47,7 +47,7 @@ async function discord(path,auth,options={}) {
 async function input(req) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw error(415,'invalid');
   let body='';
-  for await (const chunk of req) {body+=chunk;if (body.length>16000) throw error(413,'invalid')}
+  for await (const chunk of req) {body+=chunk;if (body.length>48000) throw error(413,'invalid')}
   try { return JSON.parse(body); } catch {throw error(400,'invalid')}
 }
 function text(value,max,required=false) {
@@ -264,6 +264,14 @@ createServer(async(req,res)=>{
         rules=validateRules(data.rules,roles.filter(r=>r.id!==guild),channels);
         const available=db.prepare('SELECT id FROM web_panels WHERE guild=?').all(guild).map(row=>row.id);
         rules.presentation=validatePresentation(data.rules?.presentation,available,data.id);
+        const p=rules.presentation;
+        if(p.faqId&&!db.prepare('SELECT 1 FROM faq_entries WHERE id=? AND guild=? AND published=1').get(p.faqId,guild))throw Error('Invalid FAQ');
+        if(p.layout==='embed'){
+          const size=(p.title||title).length+body.length+p.author.length+p.footer.length+
+            p.fields.reduce((n,item)=>n+item.name.length+item.value.length,0)+
+            p.extras.reduce((n,item)=>n+item.title.length+item.body.length,0);
+          if(size>6000)throw Error('Embed character limit');
+        }
       }catch{throw error(400,'panelRulesInvalid')}
       if(rules.logChannel){
         const log=channels.find(channel=>channel.id===rules.logChannel);
