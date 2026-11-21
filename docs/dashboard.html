@@ -56,6 +56,19 @@ body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#10
 .panel-directory .row{position:relative;padding-top:44px}.panel-delete{position:absolute;top:7px;left:8px;min-height:30px;padding:1px 9px;color:#ffd1dd}
 .role-picker{max-height:175px;overflow:auto;padding:8px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:14px}.role-picker label{display:flex;align-items:center;margin:5px 0}
 .preview-markdown p{margin:2px 0}.preview-markdown blockquote{border-left:3px solid var(--line);padding-left:9px;margin:3px 0}.preview-markdown pre{white-space:pre-wrap;background:#100a18;padding:8px;border-radius:5px}.preview-markdown code{background:#100a18}.preview-markdown .spoiler{cursor:pointer;background:#08070c}.preview-markdown .spoiler:not([open]) summary{color:var(--muted)}.preview-markdown small{color:var(--muted)}
+
+.role-menu{border:1px solid var(--line);border-radius:12px;padding:12px;margin:0 0 14px}
+.role-menu legend{font-size:14px;font-weight:700;padding:0 5px}.role-menu select{width:100%;margin-top:8px}
+.role-chips{display:flex;gap:6px;flex-wrap:wrap}.role-chip{display:inline-flex;align-items:center;gap:7px;background:#362349;border:1px solid #62447e;border-radius:20px;padding:2px 4px 2px 10px;font-size:13px}
+.role-chip button{min-height:26px;min-width:29px;padding:0 5px;border:0;border-radius:20px;background:transparent}.role-chip button:hover{background:#633a7e}
+.composer-controls{display:grid;gap:10px}.composer-controls>.composer-top{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;padding:12px;border-radius:10px;background:#21162e;border:1px solid var(--line)}
+.composer-top label{margin:0}.composer-top select{width:100%}
+.composer-group{border:1px solid var(--line);border-radius:10px;background:#1b1427}
+.composer-group>summary{padding:13px 14px;color:var(--ink)}.composer-group[open]>summary{border-bottom:1px solid var(--line);background:#251937;border-radius:10px 10px 0 0}
+.composer-group-content{display:grid;gap:9px;padding:13px}.composer-group-content>label,.composer-group-content fieldset label:last-child{margin-bottom:0}.composer-group-content .area{margin:0;padding:12px}
+.composer-compact{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px}.composer-compact label:first-child{grid-column:1/-1}
+.composer-controls input[type=color]{min-width:54px;width:54px;padding:4px}.composer-group [hidden]{display:none!important}
+.editor-preview-slot>.area{border-color:#533c69}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -94,6 +107,8 @@ lex['pt-BR'].previewOpenTicket='Abrir ticket';
 lex.en.previewOpenTicket='Open ticket';
 Object.assign(lex['pt-BR'],{supportRoles:'Cargos de suporte',overflow:'Categoria de reserva',noOverflow:'Sem categoria de reserva',previewChoice:'Opção selecionada',spoiler:'Mostrar spoiler',publishBusy:'Este painel já está sendo publicado.',cleanupPending:'Publicado. A mensagem antiga será removida em uma nova tentativa de publicação.'});
 Object.assign(lex.en,{supportRoles:'Support roles',overflow:'Overflow category',noOverflow:'No overflow category',previewChoice:'Selected option',spoiler:'Show spoiler',publishBusy:'This panel is already being published.',cleanupPending:'Published. Republish to retry removing the older message.'});
+Object.assign(lex['pt-BR'],{pickRole:'Adicionar cargo…',removeRole:'Remover cargo',defaultTeam:'Somente a equipe padrão do servidor',roleLimit:'Limite de 20 cargos selecionados',composerMessage:'Conteúdo',composerMedia:'Imagem, cor e rodapé',composerOptions:'Botões e menu',composerBlocks:'Campos e blocos',composerTicketActions:'Ações do ticket',composerStyle:'Aparência',composerPlacement:'Posição dos botões'});
+Object.assign(lex.en,{pickRole:'Add a role…',removeRole:'Remove role',defaultTeam:'Server default support team only',roleLimit:'Limit of 20 selected roles',composerMessage:'Content',composerMedia:'Image, color and footer',composerOptions:'Buttons and menu',composerBlocks:'Fields and blocks',composerTicketActions:'Ticket actions',composerStyle:'Appearance',composerPlacement:'Button position'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
@@ -117,7 +132,7 @@ function sample(){
   const now=Date.now();
   const areas=language==='en'?['General help','Billing','Bug report']:['Suporte geral','Financeiro','Bugs'];
   const items=Array.from({length:27},(_,i)=>({channel:'',area:areas[i%3],opened:now-(i*15+1)*3600000,closed:i%3===0?null:now-i*15*3600000,priority:['normal','alta','baixa','urgente'][i%4],assigned:i%6===0,rating:i%3===1?5:null}));
-  return {settings:{},roles:[],channels:[],locale:language,faqs:[],panels:[{id:'sample',title:areas[0],body:language==='en'?'Tell us how we can help.':'Conte como podemos ajudar.'}],queue:{items,totals:{active:9,opened:27,closed:18,rated:9}}};
+  return {settings:{},roles:[{id:'100000000000000001',name:language==='en'?'Support':'Suporte'},{id:'100000000000000002',name:'DEV'}],channels:[],locale:language,faqs:[],panels:[{id:'sample',title:areas[0],body:language==='en'?'Tell us how we can help.':'Conte como podemos ajudar.'}],queue:{items,totals:{active:9,opened:27,closed:18,rated:9}}};
 }
 const navItems=[['home','◈'],['queue','▤'],['panels','▦'],['faq','?'],['settings','⚙'],['analytics','▥']];
 function navigate(key){
@@ -262,13 +277,27 @@ function extraPanelFields(panel){
   const routing=section('routing');
   const roles=data.roles.map(r=>[r.id,r.name]);
   const selected=new Set(rule.supportRoles??(rule.role?[rule.role]:[]));
-  const rolePicker=make('fieldset','',{class:'role-picker'});
-  rolePicker.append(make('legend',t('supportRoles')));
-  for(const [id,name] of roles){
-    const box=make('input','',{type:'checkbox'});box.checked=selected.has(id);
-    box.onchange=()=>box.checked?selected.add(id):selected.delete(id);
-    rolePicker.append(label(name,box));
+  const rolePicker=make('fieldset','',{class:'role-menu'});
+  const chips=make('div','',{class:'role-chips'}), menu=select([],null,t('pickRole'));
+  menu.setAttribute('aria-label',t('pickRole'));
+  function showRoles(){
+    const available=roles.filter(([id])=>!selected.has(id));
+    menu.replaceChildren(...select(available,'',t(selected.size>=20?'roleLimit':'pickRole')).children);
+    menu.disabled=selected.size>=20||!available.length;
+    const tags=[...selected].map(id=>{
+      const name=roles.find(([key])=>key===id)?.[1]||id;
+      const chip=make('span','',{class:'role-chip'});
+      chip.append(make('span',name),click('×',()=>{
+        selected.delete(id);showRoles();
+        (menu.disabled?rolePicker:menu).focus();
+      },{'aria-label':t('removeRole')+' '+name}));
+      return chip;
+    });
+    chips.replaceChildren(...(tags.length?tags:[make('span',t('defaultTeam'),{class:'muted'})]));
   }
+  rolePicker.tabIndex=-1;
+  menu.onchange=()=>{if(menu.value&&selected.size<20){selected.add(menu.value);showRoles()}};
+  rolePicker.append(make('legend',t('supportRoles')),chips,menu);showRoles();
   const categories=data.channels.filter(c=>c.type===4).map(c=>[c.id,c.name]);
   const category=select(categories,rule.category,t('inherit'));
   const overflow=select(categories,rule.overflow,t('noOverflow'));
@@ -403,10 +432,13 @@ function presentationEditor(panel,title,body){
     const set=make('fieldset','',{class:'area'});set.append(make('legend',t(key)));
     const enabled=check(config.enabled!==false);
     const labelText=field(config.label,80),emoji=field(config.emoji,32),style=select(styles,String(config.style??2));
-    if(switchable)set.append(label(t('buttonEnabled'),enabled));
-    set.append(label(t('buttonLabel'),labelText),label(t('emoji'),emoji),label(t('buttonColor'),style));
-    parent.append(set);
-    return ()=>({enabled:enabled.checked,label:labelText.value,emoji:emoji.value,style:Number(style.value)});
+    const compact=make('div','',{class:'composer-compact'});
+    if(switchable)compact.append(label(t('buttonEnabled'),enabled));
+    compact.append(label(t('buttonLabel'),labelText),label(t('emoji'),emoji),label(t('buttonColor'),style));
+    set.append(compact);parent.append(set);
+    const read=()=>({enabled:enabled.checked,label:labelText.value,emoji:emoji.value,style:Number(style.value)});
+    read.fieldset=set;
+    return read;
   };
   formats.append(label(t('layout'),layout),label(t('navigation'),navigation),label(t('displayTitle'),heading),label(t('color'),color));
   const opener=button(formats,'openButton',look.opener??{style:1});
@@ -518,9 +550,38 @@ function presentationEditor(panel,title,body){
       return picture;
     }catch{return null}
   }
+  function group(key,nodes,open=false){
+    const section=make('details','',{class:'composer-group'});section.open=open;
+    const content=make('div','',{class:'composer-group-content'});content.append(...nodes);
+    section.append(make('summary',t(key)),content);return section;
+  }
+  function compose(parent,top,groups){
+    parent.classList.add('composer-controls');
+    const controls=make('div','',{class:'composer-top'});controls.append(...top.map(node=>node.closest('label')));
+    parent.replaceChildren(controls,...groups);
+  }
+  const [openTitle,openColor]=[heading,color].map(node=>node.closest('label'));
+  const openButton=opener.fieldset;
+  const embedFooter=footer.closest('label'),embedImage=image.closest('label');
+  const placement=actionsFirst.closest('label');
+  compose(formats,[layout,navigation],[
+    group('composerMessage',[openTitle,label(t('body'),body)],true),
+    group('composerMedia',[openColor,embedImage,embedFooter]),
+    group('composerOptions',[openButton,menuDetails,linkPicker.closest('label'),addLink,linkArea]),
+    group('composerBlocks',[embed,components]),
+    group('composerPlacement',[placement])
+  ]);
+  const publicPlacement=placement.closest('.composer-group');
+  const internalPlacement=group('composerPlacement',[firstLabel]);
+  compose(inside,[insideLayout],[
+    group('composerMessage',[insideTitle.closest('label'),insideMessage.closest('label')],true),
+    group('composerMedia',[inherited.closest('label'),insideColor.closest('label'),insideImage.closest('label'),insideFooter.closest('label')]),
+    group('composerTicketActions',[claim.fieldset,rename.fieldset,close.fieldset]),
+    internalPlacement
+  ]);
   function preview(){
     const p=dataValue();
-    embed.hidden=p.layout==='v2';image.disabled=embed.hidden;components.hidden=p.layout!=='v2';menuDetails.hidden=p.navigation!=='menu';
+    embed.hidden=p.layout==='v2';embedImage.hidden=embedFooter.hidden=image.disabled=embed.hidden;components.hidden=publicPlacement.hidden=p.layout!=='v2';menuDetails.hidden=p.navigation!=='menu';
     canvas.style.borderColor=p.color;
     publicFormat.textContent=t(p.layout==='v2'?'v2':'embed')+' · '+t(p.navigation==='menu'?'menuMode':'buttonMode');
     const message=[discordText(p.title||title.value||t('name'),true),discordText(body.value||t('body'))];
@@ -561,7 +622,7 @@ function presentationEditor(panel,title,body){
   function previewInside(){
     const p=dataValue(),v=p.inside;
     insideFormat.textContent=t(v.layout==='v2'?'v2':'embed');
-    insideColor.disabled=inherited.checked;firstLabel.hidden=v.layout!=='v2';
+    insideColor.disabled=inherited.checked;internalPlacement.hidden=v.layout!=='v2';
     insideCanvas.style.borderColor=v.color||(v.layout==='v2'?p.color:'#9a62e7');
     const parts=[discordText(v.title||title.value||t('name'),true)];
     if(v.message)parts.push(discordText(v.message));
@@ -580,7 +641,7 @@ function presentationEditor(panel,title,body){
   color.addEventListener('input',previewInside);
   previewInside();
   formats.addEventListener('input',preview);
-  title.addEventListener('input',preview);body.addEventListener('input',preview);
+  title.addEventListener('input',preview);
   preview();
   return {formats,inside,card,insideCard,value:dataValue};
 }
@@ -630,7 +691,7 @@ function panelsPage(){
   const fields=extraPanelFields(panel),presentation=presentationEditor(panel,title,body);
   const editor=make('form','');
   const general=make('div','',{class:'stack'});general.append(label(t('name'),title),fields.routing);
-  const opening=make('div','',{class:'stack'});opening.append(label(t('body'),body),presentation.formats);
+  const opening=presentation.formats;
   for(const section of [fields.routing,fields.questions,fields.hours,presentation.formats,presentation.inside])section.open=true;
   const publication=make('div','',{class:'stack'});
   if(!panel||demo)publication.append(make('p',t(!panel?'noPublication':'demoMode'),{class:'muted'}));
@@ -674,6 +735,7 @@ function panelsPage(){
     };
   }
   editor.addEventListener('invalid',e=>{
+    const group=e.target.closest('.composer-group');if(group)group.open=true;
     const page=e.target.closest('[role=tabpanel]');
     const index=pages.indexOf(page);if(index>=0&&page.hidden)selectTab(index);
   },true);
