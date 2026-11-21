@@ -44,6 +44,31 @@ async function discord(path,auth,options={}) {
   }
   return response.status===204?null:response.json();
 }
+function primaryPanelComponent(components){
+  for(const component of components??[]){
+    if(component.custom_id?.startsWith('v:open:')||component.custom_id?.startsWith('v:choose:'))return component.custom_id;
+    const nested=primaryPanelComponent(component.components);
+    if(nested)return nested;
+  }
+  return null;
+}
+async function findPreviousPanels(panelId,channel,bot){
+  const found=[];
+  if(!isId(DISCORD_CLIENT_ID))return found;
+  let before='';
+  for(let page=0;page<3;page++){
+    const messages=await discord('/channels/'+channel+'/messages?limit=100'+(before?'&before='+before:''),bot);
+    if(!Array.isArray(messages))break;
+    for(const message of messages){
+      if(message.author?.id!==DISCORD_CLIENT_ID||!isId(message.id))continue;
+      const root=primaryPanelComponent(message.components);
+      if(root==='v:open:'+panelId||root==='v:choose:'+panelId)found.push(message.id);
+    }
+    if(messages.length<100||!isId(messages.at(-1)?.id))break;
+    before=messages.at(-1).id;
+  }
+  return found;
+}
 async function input(req) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw error(415,'invalid');
   let body='';
@@ -350,12 +375,21 @@ createServer(async(req,res)=>{
       publishing.add(panel.id);
       try{
         const linked=(panel.rules.presentation?.links??[]).map(id=>panelFromDb(db,guild,id)).filter(Boolean);
+        let cleanupPending=false;
+        const knownChannels=new Set([data.channel,...db.prepare('SELECT DISTINCT channel FROM panel_publications WHERE panel=?').all(panel.id).map(row=>row.channel)]);
+        for(const channel of knownChannels){
+          try{
+            for(const old of await findPreviousPanels(panel.id,channel,bot))
+              db.prepare('INSERT OR IGNORE INTO panel_publications VALUES(?,?,?)').run(panel.id,channel,old);
+          }catch(e){
+            if(e.discordStatus!==404||e.discordCode!==10003)cleanupPending=true;
+          }
+        }
         const msg=await discord('/channels/'+data.channel+'/messages',bot,{
           method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify(panelMessage(panel,linked,locale))
         });
         db.prepare('INSERT INTO panel_publications VALUES(?,?,?)').run(panel.id,data.channel,msg.id);
-        let cleanupPending=false;
         for(const old of db.prepare('SELECT channel,message FROM panel_publications WHERE panel=? AND message<>?').all(panel.id,msg.id)){
           try{
             await discord('/channels/'+old.channel+'/messages/'+old.message,bot,{method:'DELETE'});
