@@ -38,6 +38,33 @@ function buttonConfig(input){
   const button=input??{};
   return {enabled:button.enabled!==false,label:limited(button.label??'',80),emoji:emojiName(button.emoji),style:style(button.style)};
 }
+function embedFields(fields=[]){
+  if(!Array.isArray(fields)||fields.length>4)throw Error('Invalid embed fields');
+  return fields.map(item=>{
+    const name=limited(item?.name,256),value=limited(item?.value,360);
+    if(!name||!value)throw Error('Empty embed field');
+    return {name,value,inline:item.inline===true};
+  });
+}
+function embedDetails(item){
+  const color=item.color??'';
+  if(color&&!/^#[a-f0-9]{6}$/i.test(color))throw Error('Invalid embed color');
+  return {color,author:limited(item.author??'',256),authorUrl:httpsUrl(item.authorUrl??''),authorIcon:httpsUrl(item.authorIcon??''),
+    thumbnail:httpsUrl(item.thumbnail??''),footer:limited(item.footer??'',256),footerIcon:httpsUrl(item.footerIcon??''),
+    image:httpsUrl(item.image??''),fields:embedFields(item.fields)};
+}
+export function embedCharacters(item,title='',body=''){
+  return (item.title||title).length+(item.body??body).length+(item.author??'').length+(item.footer??'').length+
+    (item.fields??[]).reduce((total,field)=>total+field.name.length+field.value.length,0);
+}
+function discordEmbed(item,title,body,color){
+  return {color:parseInt((item.color||color||'#a079ec').slice(1),16),
+    ...(title?{title}:{}),...(body?{description:body}:{}),
+    ...(item.author?{author:{name:item.author,...(item.authorUrl?{url:item.authorUrl}:{}),...(item.authorIcon?{icon_url:item.authorIcon}:{})}}:{}),
+    ...(item.thumbnail?{thumbnail:{url:item.thumbnail}}:{}),
+    ...(item.footer?{footer:{text:item.footer,...(item.footerIcon?{icon_url:item.footerIcon}:{})}}:{}),
+    ...(item.fields?.length?{fields:item.fields}:{}),...(item.image?{image:{url:item.image}}:{})};
+}
 export function validatePresentation(value,available,owner){
   const p=value??{};
   if(typeof p!=='object'||Array.isArray(p))throw Error('Invalid presentation');
@@ -45,31 +72,23 @@ export function validatePresentation(value,available,owner){
   if(!Array.isArray(links)||links.length>20||new Set(links).size!==links.length||links.some(id=>id===owner||!available.includes(id)))throw Error('Invalid linked panels');
   const color=p.color??'#a079ec';
   if(!/^#[a-f0-9]{6}$/i.test(color))throw Error('Invalid color');
-  const fields=p.fields??[];
-  if(!Array.isArray(fields)||fields.length>4)throw Error('Invalid embed fields');
+  const details=embedDetails(p);
   const blocks=p.blocks??[];
   if(!Array.isArray(blocks)||blocks.length>8)throw Error('Invalid component blocks');
   const extras=p.extras??[];
   if(!Array.isArray(extras)||extras.length>3)throw Error('Invalid extra embeds');
   const extraEmbeds=extras.map(item=>{
     const title=limited(item?.title??'',256),body=limited(item?.body??'',1000);
-    if(!title&&!body)throw Error('Empty embed');
-    return {title,body};
+    const details=embedDetails(item??{});
+    if(!title&&!body&&!details.author&&!details.footer&&!details.fields.length&&!details.image&&!details.thumbnail)throw Error('Empty embed');
+    return {...details,title,body};
   });
   const insideColor=p.inside?.color??'';
   if(insideColor&&!/^#[a-f0-9]{6}$/i.test(insideColor))throw Error('Invalid ticket color');
   return {
     layout:p.layout==='v2'?'v2':'embed',navigation:p.navigation==='menu'?'menu':'buttons',
-    links,faqId:limited(p.faqId??'',48),color,title:limited(p.title??'',256),footer:limited(p.footer??'',256),
-    author:limited(p.author??'',256),authorUrl:httpsUrl(p.authorUrl??''),authorIcon:httpsUrl(p.authorIcon??''),
-    thumbnail:httpsUrl(p.thumbnail??''),footerIcon:httpsUrl(p.footerIcon??''),extras:extraEmbeds,
-    image:httpsUrl(p.image??''),description:limited(p.description??'',100),
+    ...details,links,faqId:limited(p.faqId??'',48),color,title:limited(p.title??'',256),extras:extraEmbeds,description:limited(p.description??'',100),
     opener:buttonConfig(p.opener),placeholder:limited(p.placeholder??'',150),
-    fields:fields.map(f=>{
-      const name=limited(f.name,256),value=limited(f.value,360);
-      if(!name||!value)throw Error('Empty embed field');
-      return {name,value,inline:f.inline===true};
-    }),
     blocks:blocks.map(b=>{
       if(b.kind==='divider')return {kind:b.kind};
       if(b.kind==='image'){
@@ -121,10 +140,7 @@ export function panelMessage(panel,linked,locale){
         b.kind==='image'?{type:12,items:[{media:{url:b.value}}]}:{type:10,content:b.value})];
     return {flags:32768,components:[{type:17,accent_color:color,components:p.actionsFirst?[...rows,...blocks]:[...blocks,...rows]}],allowed_mentions:{parse:[]}};
   }
-  return {embeds:[{title:p.title||panel.title,description:panel.body,color,
-    ...(p.author?{author:{name:p.author,...(p.authorUrl?{url:p.authorUrl}:{}),...(p.authorIcon?{icon_url:p.authorIcon}:{})}}:{}),
-    ...(p.thumbnail?{thumbnail:{url:p.thumbnail}}:{}),
-    ...(p.footer?{footer:{text:p.footer,...(p.footerIcon?{icon_url:p.footerIcon}:{})}}:{}),...(p.fields?.length?{fields:p.fields}:{}),...(p.image?{image:{url:p.image}}:{})},...(p.extras??[]).map(item=>({color,...(item.title?{title:item.title}:{}),...(item.body?{description:item.body}:{})}))],
+  return {embeds:[discordEmbed(p,p.title||panel.title,panel.body),...(p.extras??[]).map(item=>discordEmbed(item,item.title,item.body,p.color))],
     components:rows,allowed_mentions:{parse:[]}};
 }
 
