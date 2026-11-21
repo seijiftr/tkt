@@ -265,6 +265,13 @@ createServer(async(req,res)=>{
         const available=db.prepare('SELECT id FROM web_panels WHERE guild=?').all(guild).map(row=>row.id);
         rules.presentation=validatePresentation(data.rules?.presentation,available,data.id);
       }catch{throw error(400,'panelRulesInvalid')}
+      if(rules.logChannel){
+        const log=channels.find(channel=>channel.id===rules.logChannel);
+        const overwrite=log.permission_overwrites?.find(permission=>permission.id===guild);
+        const everyone=BigInt(roles.find(role=>role.id===guild)?.permissions??'0');
+        const visibility=((everyone&~BigInt(overwrite?.deny??'0'))|BigInt(overwrite?.allow??'0'))&1024n;
+        if(visibility)throw error(400,'privateLogs');
+      }
       const id=data.id||uid();
       db.exec('BEGIN');
       try {
