@@ -189,6 +189,18 @@ function panelRoles(channel){
 const canManage = (i, config) => i.memberPermissions?.has(Permission.ManageGuild) || [config.role,...panelRoles(i.channelId)].some(role=>role&&i.member?.roles?.cache?.has(role));
 function checkAvailability(i,panel){
   if(panel.rules.enabled===false)throw Error(translated(i,'Este painel está pausado.','This panel is paused.'));
+  const policy=panel.rules.access;
+  if(policy){
+    const has=id=>i.member?.roles?.cache?.has(id)??false;
+    if((policy.blocked??[]).some(has))throw Error(translated(i,'Um cargo impede a abertura neste painel.','A role prevents you from opening tickets in this panel.'));
+    const required=policy.required??[];
+    if(required.length&&!(policy.all?required.every(has):required.some(has)))throw Error(translated(i,'Você precisa dos cargos exigidos neste painel.','You need the roles required by this panel.'));
+    const elapsed=timestamp=>timestamp?Date.now()-timestamp:0;
+    if(policy.accountDays>0&&elapsed(i.user.createdTimestamp)<policy.accountDays*86400000)
+      throw Error(translated(i,'Sua conta ainda não atingiu a idade mínima.','Your account has not reached the minimum age.'));
+    if(policy.memberDays>0&&elapsed(i.member?.joinedTimestamp)<policy.memberDays*86400000)
+      throw Error(translated(i,'Você ainda não atingiu o tempo mínimo no servidor.','You have not reached the minimum membership duration.'));
+  }
   const schedule=panel.rules.schedule;
   const bypass=schedule?.bypass&&i.member?.roles?.cache?.has(schedule.bypass);
   const state=availability(schedule,bypass);
@@ -426,7 +438,9 @@ async function openTicket(i, config, panel=null) {
         parent=overflow;
       }
     }
-    const name=(channelSlug(area)||'ticket').slice(0,100);
+    const prefix=channelSlug(area)||'ticket';
+    const member=panel?.rules.naming==='member'?channelSlug(i.user.username||'').slice(0,40):'';
+    const name=member?prefix.slice(0,99-member.length).replace(/-+$/,'')+'-'+member:prefix.slice(0,100);
     const channelOptions={
       name, type: ChannelType.GuildText, parent,
       permissionOverwrites:[
@@ -448,8 +462,11 @@ async function openTicket(i, config, panel=null) {
         .run(channel.id,i.guildId,i.user.id,area,Date.now());
       if(panel)db.prepare('INSERT INTO ticket_panel_sources VALUES(?,?)').run(channel.id,panel.id);
       if(selectedRoles.length)db.prepare('INSERT INTO ticket_panel_routes VALUES(?,?)').run(channel.id,JSON.stringify(selectedRoles));
-      await channel.send(firstTicketMessage(i,area,description,answers,warning,panel,files));
+      if(panel?.rules.logChannel)db.prepare('INSERT INTO ticket_log_routes VALUES(?,?)').run(channel.id,panel.rules.logChannel);
+      const opening=await channel.send(firstTicketMessage(i,area,description,answers,warning,panel,files));
+      if(panel?.rules.pinOpening)await opening.pin().catch(error=>console.warn('TKT pin:',error.code??error.name));
     } catch (error) {
+      db.prepare('DELETE FROM ticket_log_routes WHERE channel=?').run(channel.id);
       db.prepare('DELETE FROM ticket_panel_sources WHERE channel=?').run(channel.id);
       db.prepare('DELETE FROM ticket_panel_routes WHERE channel=?').run(channel.id);
       db.prepare('DELETE FROM tickets WHERE channel=?').run(channel.id);
@@ -556,7 +573,8 @@ async function manage(i, config, action, requestId) {
     if (action === 'encerrar'||action==='close-yes') {
       const reason=action==='close-yes'?closeRequest.reason:i.isModalSubmit()?i.fields.getTextInputValue('value').trim():i.isChatInputCommand()?i.options.getString('motivo')?.trim()||'':'';
       if(i.isModalSubmit()&&!reason)throw new Error(translated(i,'Informe o motivo do fechamento.','Enter a reason for closing.'));
-      const log = await i.guild.channels.fetch(config.logs);
+      const preferred=db.prepare('SELECT logs FROM ticket_log_routes WHERE channel=?').get(channel.id)?.logs;
+      const log = await i.guild.channels.fetch(preferred||config.logs);
       if (log.id === channel.id || !log.isTextBased()) throw new Error('Configure um canal separado para os registros.');
       if (log.permissionsFor(i.guild.roles.everyone)?.has(Permission.ViewChannel)) throw new Error(translated(i,'O canal de registros precisa ser privado.',"The log channel must be private."));
       const file = await transcript(channel,i,record,reason);
