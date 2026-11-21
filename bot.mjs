@@ -182,8 +182,11 @@ async function exclusive(key, work) {
   try { return await work(); } finally { pending.delete(key); }
 }
 const privateReply = (i, content) => i.reply({ content, flags: MessageFlags.Ephemeral });
-const panelRole = channel => db.prepare('SELECT role FROM ticket_panel_routes WHERE channel=?').get(channel)?.role;
-const canManage = (i, config) => i.memberPermissions?.has(Permission.ManageGuild) || [config.role,panelRole(i.channelId)].some(role=>role&&i.member?.roles?.cache?.has(role));
+function panelRoles(channel){
+  const value=db.prepare('SELECT role FROM ticket_panel_routes WHERE channel=?').get(channel)?.role;
+  return !value?[]:value.startsWith('[')?JSON.parse(value):[value];
+}
+const canManage = (i, config) => i.memberPermissions?.has(Permission.ManageGuild) || [config.role,...panelRoles(i.channelId)].some(role=>role&&i.member?.roles?.cache?.has(role));
 function checkAvailability(i,panel){
   const schedule=panel.rules.schedule;
   const bypass=schedule?.bypass&&i.member?.roles?.cache?.has(schedule.bypass);
@@ -410,21 +413,39 @@ async function openTicket(i, config, panel=null) {
     const {fields:answers,uploads}=hasForm?panelAnswers(i,panel):{fields:[],uploads:[]};
     const files=await downloadUploads(uploads);
     const category=panel?.rules.category||config.category;
-    const supportRoles=[...new Set([config.role,panel?.rules.role].filter(Boolean))];
+    const overflow=panel?.rules.overflow;
+    const selectedRoles=panel?.rules.supportRoles??(panel?.rules.role?[panel.rules.role]:[]);
+    const supportRoles=[...new Set([config.role,...selectedRoles].filter(Boolean))];
+    let parent=category;
+    const full=(channels,id)=>[...channels.values()].filter(channel=>channel?.parentId===id).length>=50;
+    if(overflow&&overflow!==category){
+      const channels=await i.guild.channels.fetch();
+      if(full(channels,category)){
+        if(full(channels,overflow))throw Error(translated(i,'As duas categorias de tickets estão cheias.','Both ticket categories are full.'));
+        parent=overflow;
+      }
+    }
     const name=(channelSlug(area)||'ticket').slice(0,100);
-    const channel = await i.guild.channels.create({
-      name, type: ChannelType.GuildText, parent:category,
+    const channelOptions={
+      name, type: ChannelType.GuildText, parent,
       permissionOverwrites:[
         {id:i.guildId, type:0, deny:[Permission.ViewChannel]},
         ...supportRoles.map(id=>({id,type:0,allow:[Permission.ViewChannel,Permission.SendMessages,Permission.ReadMessageHistory]})),
         {id:i.user.id, type:1, allow:[Permission.ViewChannel,Permission.SendMessages,Permission.ReadMessageHistory]},
         {id:client.user.id, type:1, allow:[Permission.ViewChannel,Permission.SendMessages,Permission.ReadMessageHistory]},
       ],
-    });
+    };
+    let channel;
+    try{channel=await i.guild.channels.create(channelOptions)}catch(error){
+      if(!overflow||overflow===category||parent!==category||Number(error.code)!==50035)throw error;
+      const fresh=await i.guild.channels.fetch();
+      if(!full(fresh,category)||full(fresh,overflow))throw error;
+      channel=await i.guild.channels.create({...channelOptions,parent:overflow});
+    }
     try {
       db.prepare('INSERT INTO tickets(channel,guild,owner,area,opened) VALUES(?,?,?,?,?)')
         .run(channel.id,i.guildId,i.user.id,area,Date.now());
-      if(panel?.rules.role)db.prepare('INSERT INTO ticket_panel_routes VALUES(?,?)').run(channel.id,panel.rules.role);
+      if(selectedRoles.length)db.prepare('INSERT INTO ticket_panel_routes VALUES(?,?)').run(channel.id,JSON.stringify(selectedRoles));
       await channel.send(firstTicketMessage(i,area,description,answers,warning,panel,files));
     } catch (error) {
       db.prepare('DELETE FROM ticket_panel_routes WHERE channel=?').run(channel.id);
@@ -589,7 +610,7 @@ async function manage(i, config, action, requestId) {
       const staff=(channelSlug(i.member?.displayName||i.user.globalName||i.user.username||'')||agent).slice(0,45);
       await channel.setName(base.slice(0,99-staff.length).replace(/-+$/,'')+'-'+staff);
       db.prepare('UPDATE tickets SET agent=? WHERE channel=?').run(agent,channel.id);
-      await channel.send({content:translated(i,'Atendimento assumido por','Ticket claimed by')+' <@'+agent+'>.',allowedMentions:allowed});
+      await channel.send({embeds:[card(translated(i,'Ticket assumido','Ticket claimed'),'<@'+agent+'>')],allowedMentions:allowed});
       return i.editReply(translated(i,'Ticket assumido.','Ticket claimed.'));
     }
     if(action==='transferir'){
@@ -597,7 +618,7 @@ async function manage(i, config, action, requestId) {
       if(record.agent&&record.agent!==i.user.id&&!admin)
         throw new Error(translated(i,'Apenas o responsável ou um administrador pode transferir este ticket.','Only the assignee or an administrator can transfer this ticket.'));
       const target=await i.guild.members.fetch(i.options.getUser('membro',true).id);
-      const staffRoles=[config.role,panelRole(channel.id)].filter(Boolean);
+      const staffRoles=[config.role,...panelRoles(channel.id)].filter(Boolean);
       if(target.user.bot||!channel.permissionsFor(target)?.has(Permission.ViewChannel)||
         !(target.permissions.has(Permission.ManageGuild)||staffRoles.some(role=>target.roles.cache.has(role))))
         throw new Error(translated(i,'Escolha um atendente com acesso ao ticket.','Choose a staff member who can access the ticket.'));
@@ -608,7 +629,12 @@ async function manage(i, config, action, requestId) {
     if(action==='renomear'){
       const name=channelSlug(i.isModalSubmit()?i.fields.getTextInputValue('value'):i.options.getString('nome',true)).slice(0,100);
       if(!name)throw new Error(translated(i,'Informe um nome válido.','Enter a valid name.'));
-      await channel.setName(name);
+      const previous=channel.name;
+      if(previous!==name){
+        await channel.setName(name);
+        const detail='<@'+i.user.id+'> · `'+previous+'` → `'+name+'`';
+        await channel.send({embeds:[card(translated(i,'Canal renomeado','Channel renamed'),detail)],allowedMentions:allowed});
+      }
       return i.editReply(translated(i,'Canal renomeado.','Channel renamed.'));
     }
     if(action==='mover'){
@@ -751,7 +777,7 @@ client.on(Events.MessageCreate,message=>{
   if(!message.guildId||message.author.bot||!message.member)return;
   try{
     const config=settings(message.guildId);
-    if(!config||!message.member.permissions.has(Permission.ManageGuild)&&![config.role,panelRole(message.channelId)].some(role=>role&&message.member.roles.cache.has(role)))return;
+    if(!config||!message.member.permissions.has(Permission.ManageGuild)&&![config.role,...panelRoles(message.channelId)].some(role=>role&&message.member.roles.cache.has(role)))return;
     const ticket=getTicket(message.channelId);
     if(!ticket||ticket.closed!==null||message.author.id===ticket.owner||message.createdTimestamp<ticket.opened)return;
     db.prepare("INSERT OR IGNORE INTO ticket_events VALUES(?,?, 'reply', ?)").run(message.guildId,message.channelId,message.createdTimestamp);
