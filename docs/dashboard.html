@@ -92,6 +92,18 @@ dialog{background:#221632;color:var(--ink);border:1px solid #79569d;border-radiu
 .form-picker-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:14px 0}.form-picker-grid button{text-align:left}.form-picker-grid button small{display:block;color:var(--muted)}
 .embed-author,.embed-footer{display:flex;align-items:center;gap:7px}.embed-author img,.embed-footer img{width:24px;height:24px;object-fit:cover;border-radius:50%}
 .message-frame .embed-thumbnail{float:right;width:58px;height:58px;object-fit:contain;margin-left:8px}.extra-preview{background:#281b38;border-left:3px solid var(--accent);padding:8px}
+
+.panel-editor-area .panel-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}
+.panel-editor-area .panel-pages{min-width:0}
+.editor-preview-layout{grid-template-columns:minmax(0,1fr) minmax(230px,.7fr)}.editor-preview-slot{min-width:0}
+.embed-editor-card,.form-card,.composer-controls{min-width:0;overflow-wrap:anywhere}
+.embed-editor-card .composer-compact,.form-card input,.form-card textarea{min-width:0}.embed-editor-card label:has(input[type=color]){display:flex;align-items:center;gap:8px;margin:0}
+.form-card>summary{padding:6px;color:var(--ink);font-weight:700}.form-card-body .actions{margin-top:7px}
+.form-card.drag-active{outline:2px solid #b886ea}.form-preview-list{display:grid;gap:8px}.form-preview-list label{margin:0}.form-preview-list small{color:var(--muted)}
+.form-preview-list input,.form-preview-list textarea,.form-preview-list select{max-width:100%}.form-preview-list textarea{min-height:75px}
+.panel-editor-area .save-strip .save-error{color:#ffbdcf}.panel-editor-area .save-strip{flex-wrap:wrap}
+@media(max-width:1100px){.editor-preview-layout{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:640px){.panel-editor-area .panel-editor-head,.panel-editor-area .panel-pages{padding:10px}.panel-editor-area .save-strip{margin-inline:8px}.form-picker-grid{grid-template-columns:1fr}}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -144,9 +156,11 @@ Object.assign(lex['pt-BR'],{formEnabled:'Usar formulário personalizado',formDes
 Object.assign(lex.en,{formEnabled:'Use a custom form',formDescription:'Question description',pickFormField:'Add to form',formTextHint:'Members type an answer.',formSelectHint:'Members select one or more options.',formFileHint:'Members upload a file.',formNoteHint:'Show instructions or rules.',embedAuthor:'Author',embedAuthorUrl:'Author HTTPS link',embedAuthorIcon:'Author icon URL',embedThumbnail:'Thumbnail URL',embedFooterIcon:'Footer icon URL',addEmbed:'Add embed',duplicateEmbed:'Duplicate embed content',extraEmbed:'Additional embed',embedOptions:'Opening options'});
 Object.assign(lex['pt-BR'],{linkedFaq:'Pergunta frequente vinculada',noFaqLink:'Sem pergunta vinculada',faqButton:'Pergunta frequente'});
 Object.assign(lex.en,{linkedFaq:'Linked FAQ entry',noFaqLink:'No FAQ entry linked',faqButton:'Frequently asked question'});
+Object.assign(lex['pt-BR'],{formPreview:'Prévia do formulário',formDefault:'O Discord vai pedir uma descrição.',linkedManage:'Gerenciar painéis vinculados',doneEditing:'Concluir',embedTooLong:'Os embeds somam mais de 6.000 caracteres.',formNeedsAnswer:'Adicione ao menos um campo de resposta.',formChoiceLimits:'Confira as opções e os limites de seleção.',unsavedError:'Não foi possível salvar este painel.'});
+Object.assign(lex.en,{formPreview:'Form preview',formDefault:'Discord will ask for a description.',linkedManage:'Manage linked panels',doneEditing:'Done',embedTooLong:'The embeds exceed 6,000 total characters.',formNeedsAnswer:'Add at least one response field.',formChoiceLimits:'Check choices and selection limits.',unsavedError:'Could not save the panel.'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
-let templateDraft=null;
+let templateDraft=null, editorTab=0;
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
 let account=null,ready=false,demo=false,current='home',guild='',data=null,panelId='',faqId='',days=7,request=0;
 const t=key=>lex[language][key]||lex[language].fail;
@@ -303,7 +317,8 @@ async function save(action,body){
       const link=make('a',t('visit'),{href:result.url,target:'_blank',rel:'noopener noreferrer'});
       $('status').replaceChildren(document.createTextNode(t(result.cleanupPending?'cleanupPending':'sent')+' '),link);
     }else{if(action==='panel')templateDraft=null;panelId=action==='panel'?result.id||body.id:'';faqId='';await loadGuild();if(data)status('saved')}
-  }catch(e){status(e.message)}
+    return true;
+  }catch(e){status(e.message);return false}
 }
 function extraPanelFields(panel){
   const rule=panel?.rules||{}, form=make('div','',{class:'stack'});
@@ -347,6 +362,8 @@ function extraPanelFields(panel){
   category.addEventListener('change',syncCategory);syncCategory();
   routing.append(label(t('panelEnabled'),panelEnabled),rolePicker,label(t('category'),category),label(t('overflow'),overflow));
   const questions=section('formRules'), list=make('div','',{class:'stack'}), fields=[];
+  let draggedQuestion=null;
+  let refreshFormPreview=()=>{};
   const useForm=make('input','',{type:'checkbox'});useForm.checked=rule.formEnabled??Boolean(rule.questions?.length);
   function drawQuestions(){
     fields.forEach((item,index)=>{
@@ -354,6 +371,7 @@ function extraPanelFields(panel){
       item.up.disabled=index===0;item.down.disabled=index===fields.length-1;
       item.duplicate.disabled=fields.length>=5;
     });
+    refreshFormPreview();
     add.disabled=fields.length>=5;add.textContent=t('pickFormField')+' ('+fields.length+'/5)';
   }
   function addQuestion(value={},position=fields.length){
@@ -393,7 +411,18 @@ function extraPanelFields(panel){
     item.duplicate=click(t('duplicateQuestion'),()=>addQuestion(read(),fields.indexOf(item)+1).focus());
     const remove=click(t('removeQuestion'),()=>{fields.splice(fields.indexOf(item),1);card.remove();drawQuestions();add.focus()});
     const actions=make('div','',{class:'actions'});actions.append(item.up,item.down,item.duplicate,remove);
-    const summary=make('summary',''),content=make('div','',{class:'form-card-body'});
+    const summary=make('summary','',{draggable:'true'}),content=make('div','',{class:'form-card-body'});
+    summary.ondragstart=event=>{draggedQuestion=item;event.dataTransfer.setData('text/plain','tkt-field');event.dataTransfer.effectAllowed='move'};
+    summary.ondragend=()=>{draggedQuestion=null;for(const field of fields)field.card.classList.remove('drag-active')};
+    card.ondragover=event=>{if(draggedQuestion&&draggedQuestion!==item){event.preventDefault();card.classList.add('drag-active')}};
+    card.ondragleave=()=>card.classList.remove('drag-active');
+    card.ondrop=event=>{
+      if(!draggedQuestion||draggedQuestion===item)return;
+      event.preventDefault();card.classList.remove('drag-active');
+      const from=fields.indexOf(draggedQuestion),to=fields.indexOf(item);
+      fields.splice(from,1);fields.splice(to,0,draggedQuestion);draggedQuestion=null;drawQuestions();
+      questions.dispatchEvent(new Event('change',{bubbles:true}));
+    };
     const caption=()=>{summary.textContent=(kind.value==='notice'?info.value:title.value).trim().slice(0,50)||kind.selectedOptions[0].textContent};
     card.addEventListener('input',caption);card.addEventListener('change',caption);caption();
     content.append(label(t('formRules'),kind),titleField,descriptionField,infoField,choiceFields,checkbox,actions);
@@ -409,11 +438,29 @@ function extraPanelFields(panel){
   picker.append(make('h3',t('pickFormField')),types,click(t('cancel'),()=>picker.close()));
   const add=click(t('pickFormField'),()=>picker.showModal());
   const formFields=make('fieldset');formFields.append(list,add,picker);
-  function showForm(){formFields.hidden=formFields.disabled=!useForm.checked}
+  function showForm(){formFields.hidden=formFields.disabled=!useForm.checked;refreshFormPreview()}
   useForm.onchange=showForm;
   questions.append(label(t('formEnabled'),useForm),formFields);
   for(const question of rule.questions??[])addQuestion(question);
   drawQuestions();showForm();
+  const formPreview=block(t('formPreview')),previewList=make('div','',{class:'form-preview-list'});formPreview.append(previewList);
+  refreshFormPreview=()=>{
+    if(!useForm.checked||!fields.length){previewList.replaceChildren(make('p',t('formDefault'),{class:'muted'}));return}
+    previewList.replaceChildren(...fields.map(item=>{
+      const q=item.read();
+      if(q.kind==='notice')return discordText(q.text||t('noticeText'));
+      const row=make('div');
+      let control;
+      if(q.kind==='choice'){control=select(q.options.map((x,i)=>[String(i),x]),null,t('choose'));if(q.max>1)control.multiple=true}
+      else if(['user','role','channel'].includes(q.kind))control=select([['example',t('ticketExampleUser')]],null,t('choose'));
+      else if(q.kind==='long')control=make('textarea');
+      else control=make('input','',{type:q.kind==='checkbox'?'checkbox':q.kind==='file'?'file':'text'});
+      row.append(label((q.label||t('question'))+(q.required?' *':''),control));
+      if(q.description)row.append(make('small',q.description));
+      return row;
+    }));
+  };
+  questions.addEventListener('input',refreshFormPreview);questions.addEventListener('change',refreshFormPreview);refreshFormPreview();
   const hours=section('hours'), schedule=rule.schedule;
   const enabled=make('input','',{type:'checkbox'});enabled.checked=Boolean(schedule);
   const scheduleFields=make('fieldset','');
@@ -439,7 +486,7 @@ function extraPanelFields(panel){
   enabled.onchange=toggle;toggle();
   hours.append(label(t('hoursOn'),enabled),scheduleFields);
   form.addEventListener('invalid',event=>{const group=event.target.closest('details');if(group)group.open=true},true);
-  return {routing,questions,hours,value:()=>({
+  return {routing,questions,hours,formPreview,value:()=>({
     enabled:panelEnabled.checked,supportRoles:[...selected].sort(),category:category.value,overflow:overflow.value,
     formEnabled:useForm.checked,questions:fields.map(item=>item.read()),
     schedule:enabled.checked?{zone:zone.value,outside:outside.value,bypass:bypass.value,days:days.map(x=>x.state.value==='closed'?null:{status:x.state.value,start:x.start.value,end:x.end.value})}:null
@@ -676,7 +723,10 @@ function presentationEditor(panel,title,body){
   const embedCard=make('div','',{class:'embed-editor-card'});
   const actions=make('div','',{class:'embed-actions'});actions.append(openColor,duplicate);
   embedCard.append(actions,embedMeta,openTitle,label(t('body'),body),embed,embedImage,embedFooter,label(t('embedFooterIcon'),footerIcon),components,placement);
-  const optionsGroup=group('composerOptions',[navigation.closest('label'),openButton,menuDetails,linkPicker.closest('label'),addLink,linkArea],true);
+  const linkedDialog=make('dialog','',{'aria-label':t('linkedManage')});
+  linkedDialog.append(make('h3',t('linkedManage')),label(t('linked'),linkPicker),addLink,linkArea,click(t('doneEditing'),()=>linkedDialog.close(),{class:'primary'}));
+  const manageLinks=click(t('linkedManage'),()=>linkedDialog.showModal());
+  const optionsGroup=group('composerOptions',[navigation.closest('label'),openButton,menuDetails,manageLinks,linkedDialog],true);
   formats.classList.add('composer-controls');
   formats.replaceChildren(formatButtons,embedCard,extrasSection,optionsGroup,group('linkedFaq',[label(t('linkedFaq'),faqPicker)]));
   embedCard.dataset.group='composerMessage';embedMeta.dataset.group='composerMedia';
@@ -693,6 +743,7 @@ function presentationEditor(panel,title,body){
     for(const [labelKey,groupKey] of [['editMessage','composerMessage'],['editMedia','composerMedia'],['editOptions',options]]){
       bar.append(click(t(labelKey),()=>{
         const section=editor.querySelector('[data-group="'+groupKey+'"]');
+        if(section.hidden){editor.querySelector('[data-group=composerMessage] input:not([disabled])')?.focus();return}
         if(section.localName==='details')section.open=true;
         const control=section.querySelector('input:not([disabled]),textarea:not([disabled]),select:not([disabled])');
         (control||section.querySelector('summary')).focus();
@@ -810,7 +861,7 @@ async function deletePanel(panel,remove){
 function panelsPage(){
   const layout=make('div','',{class:'panel-workbench'}),list=block(t('panels')),form=block(t(panelId?'edit':'add'));
   list.classList.add('panel-list');
-  const openEditor=(id,draft=null)=>{templateDraft=draft;panelId=id;panelEditing=true;render()};
+  const openEditor=(id,draft=null)=>{editorTab=0;templateDraft=draft;panelId=id;panelEditing=true;render()};
   if(!panelEditing){
     const directory=make('div','',{class:'panel-directory'});
     const toolbar=make('div','',{class:'panel-toolbar'});
@@ -915,6 +966,7 @@ function panelsPage(){
   const sections=make('div','',{class:'panel-pages'});
   const tabButtons=[],pages=[];
   function selectTab(index,focus=false){
+    editorTab=index;
     tabButtons.forEach((button,i)=>{button.setAttribute('aria-selected',String(i===index));button.tabIndex=i===index?0:-1;pages[i].hidden=i!==index});
     if(focus)tabButtons[index].focus();
   }
@@ -922,10 +974,11 @@ function panelsPage(){
     const id='panel-tab-'+index,pageId='panel-page-'+index;
     const tab=click(t(key),()=>selectTab(index),{id,role:'tab','aria-controls':pageId});
     const page=make('section','',{id:pageId,role:'tabpanel','aria-labelledby':id});
-    if(key==='openingTab'||key==='insideTab'){
+    if(key==='openingTab'||key==='insideTab'||key==='formTab'){
       const previewLayout=make('div','',{class:'editor-preview-layout'});
       const previewSlot=make('aside','',{class:'editor-preview-slot'});
-      previewSlot.append(key==='openingTab'?presentation.card:presentation.insideCard);
+      previewSlot.append(key==='openingTab'?presentation.card:key==='insideTab'?presentation.insideCard:fields.formPreview);
+      if(key==='formTab')previewSlot.addEventListener('input',event=>event.stopPropagation());
       previewLayout.append(contents,previewSlot);page.append(previewLayout);
     }else page.append(contents);
     tabs.append(tab);sections.append(page);tabButtons.push(tab);pages.push(page);
@@ -943,7 +996,8 @@ function panelsPage(){
   const button=make('button',t('savePanel'),{class:'primary',type:'submit'});
   let saving=false;
   const note=make('p','',{class:'muted','aria-live':'polite'});
-  const strip=make('div','',{class:'save-strip'});strip.append(note,click(t('resetPanel'),()=>{if(isDirty()&&window.confirm(t('changes')+'.'))render()},{class:'quiet'}),button);
+  const saveError=make('p','',{class:'save-error',role:'alert'});
+  const strip=make('div','',{class:'save-strip'});strip.append(note,saveError,click(t('resetPanel'),()=>{if(isDirty()&&window.confirm(t('changes')+'.'))render()},{class:'quiet'}),button);
   const values=()=>({id:panelId,title:title.value,body:body.value,rules:{...fields.value(),naming:naming.value,pinOpening:pin.checked,logChannel:logChannel.value,access:{required:[...required].sort(),blocked:[...blocked].sort(),all:all.checked,accountDays:Number(accountDays.value),memberDays:Number(memberDays.value)},presentation:presentation.value()}});
   const baseline=JSON.stringify(values());
   const isDirty=()=>Boolean(templateDraft)||JSON.stringify(values())!==baseline;
@@ -954,19 +1008,26 @@ function panelsPage(){
     button.disabled=saving||!dirty;
     updatePublication(dirty);
   }
-  editor.addEventListener('input',refresh);
+  editor.addEventListener('input',()=>{saveError.textContent='';refresh()});
   editor.addEventListener('change',refresh);
   editor.addEventListener('click',e=>{if(!e.target.closest('.editor-publish'))queueMicrotask(refresh)});
   editor.onsubmit=async e=>{
     e.preventDefault();
-    const item=values();
+    const item=values(),draft=item.rules,look=draft.presentation;
+    const answerFields=draft.questions.filter(q=>q.kind!=='notice');
+    const problem=draft.formEnabled&&draft.questions.length&&!answerFields.length?'formNeedsAnswer':
+      draft.formEnabled&&answerFields.some(q=>q.kind==='choice'&&(new Set(q.options).size!==q.options.length||q.options.length<2||q.options.length>25||q.min>q.max||q.max>q.options.length))?'formChoiceLimits':'';
+    if(problem){selectTab(3);saveError.textContent=t(problem);return}
+    const size=(look.title||item.title).length+item.body.length+look.author.length+look.footer.length+
+      look.fields.reduce((n,x)=>n+x.name.length+x.value.length,0)+look.extras.reduce((n,x)=>n+x.title.length+x.body.length,0);
+    if(look.layout==='embed'&&size>6000){selectTab(1);saveError.textContent=t('embedTooLong');return}
     if(demo){
       item.id ||= String(Date.now());
       data.panels=data.panels.filter(p=>p.id!==item.id).concat(item);
       templateDraft=null;panelId=item.id;status('saved');render();return;
     }
     saving=true;refresh();
-    try{await save('panel',item);if(panelId)templateDraft=null}finally{saving=false;refresh()}
+    try{if(!await save('panel',item))saveError.textContent=$('status').textContent||t('unsavedError')}finally{saving=false;refresh()}
   };
   const head=make('div','',{class:'panel-editor-head'});
   const back=click('‹ '+t('panels'),()=>{
@@ -979,7 +1040,7 @@ function panelsPage(){
     const remove=click(t('deletePanel'),()=>deletePanel(panel,remove),{class:'secondary'});
     tools.append(remove);
   }
-  editor.append(head,tabs,sections,strip);selectTab(0);refresh();
+  editor.append(head,tabs,sections,strip);selectTab(editorTab);refresh();
   form.classList.add('panel-editor-area');form.replaceChildren(editor);layout.append(form);return layout;
 }
 function faqPage(){
