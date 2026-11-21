@@ -219,7 +219,7 @@ const entitySelectors={
 };
 function selectorRange(question){return {min:question.min??Number(question.required),max:question.max??1}}
 function panelModal(i,panel){
-  const form=panel.rules.questions??[];
+  const form=panel.rules.formEnabled===false?[]:panel.rules.questions??[];
   const title=(translated(i,'Abrir','Open')+' · '+panel.title).slice(0,45);
   const modal=new ModalBuilder().setCustomId('v:form:'+panel.id+':'+revision(panel)).setTitle(title);
   if(!form.length){
@@ -229,6 +229,7 @@ function panelModal(i,panel){
   for(const [index,question] of form.entries()){
     if(question.kind==='notice'){modal.addTextDisplayComponents(new TextDisplayBuilder().setContent(question.text));continue}
     const label=new LabelBuilder().setLabel(question.label);
+    if(question.description)label.setDescription(question.description);
     const id='q'+index;
     if(selectorKinds.has(question.kind)){
       const entity=entitySelectors[question.kind],{min,max}=selectorRange(question);
@@ -439,7 +440,7 @@ async function openTicket(i, config, panel=null) {
     }
     const area=panel?.title??i.message?.embeds[0]?.title?.trim();
     const warning=panel?checkAvailability(i,panel):'';
-    const hasForm=Boolean(panel?.rules.questions?.length);
+    const hasForm=Boolean(panel?.rules.formEnabled!==false&&panel?.rules.questions?.length);
     const description=hasForm?translated(i,'Respostas do formulário','Form responses'):i.fields.getTextInputValue('description').trim();
     if(!area||!description)throw new Error(translated(i,'Preencha a área e a descrição.','Enter the area and description.'));
     const {fields:answers,uploads}=hasForm?panelAnswers(i,panel):{fields:[],uploads:[]};
@@ -732,6 +733,13 @@ client.on(Events.InteractionCreate, async i => {
       return await i.reply({content:result.changes ? 'Avaliação registrada. Obrigado!' : 'Esta avaliação já foi registrada ou está indisponível.'});
     }
     if (!i.inGuild()) return;
+    if(i.isButton()&&i.customId.startsWith('v:panel-faq:')){
+      const panel=panelFromDb(db,i.guildId,i.customId.slice(12));
+      const id=panel?.rules.presentation?.faqId;
+      const entry=id&&db.prepare('SELECT question,answer FROM faq_entries WHERE id=? AND guild=? AND published=1').get(id,i.guildId);
+      if(!entry)return await privateReply(i,translated(i,'Esta resposta não está disponível.','This answer is unavailable.'));
+      return await i.reply({flags:MessageFlags.Ephemeral,allowedMentions:allowed,embeds:[card(entry.question,entry.answer)]});
+    }
     if(i.isChatInputCommand()&&i.commandName==='faq'){
       const locale=i.options.getString('idioma')??translated(i,'pt-BR','en');
       const query=i.options.getString('busca')??'';
