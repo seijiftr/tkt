@@ -114,6 +114,10 @@ dialog{background:#221632;color:var(--ink);border:1px solid #79569d;border-radiu
 .ticket-filters{margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.ticket-filters summary{cursor:pointer}.ticket-filter-grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:10px}.ticket-filter-grid label{margin:0}
 .ticket-details dl{display:grid;grid-template-columns:minmax(95px,.6fr) 1fr;gap:7px 12px}.ticket-details dd{margin:0;overflow-wrap:anywhere}.ticket-details dt{color:var(--muted)}.ticket-details .actions{margin-top:14px}
 .tickets-table .ticket-open-detail{padding:3px 7px;min-height:30px;text-align:left;font-size:14px;background:transparent}
+
+.link-appearance{width:100%}.linked-builder-controls{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:8px}.linked-builder-controls label{margin:0}
+.v2-message-stack{display:grid;gap:8px;min-width:0}.v2-section-preview{display:grid;grid-template-columns:minmax(0,1fr) 65px;gap:8px;align-items:start}.v2-section-preview img{width:65px;max-height:65px;object-fit:contain}
+.v2-spacer{border:0;margin:7px 0}.v2-spacer.line{border-top:1px solid #5e4772}.v2-spacer.large{margin:17px 0}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -170,6 +174,8 @@ Object.assign(lex['pt-BR'],{formPreview:'Prévia do formulário',formDefault:'O 
 Object.assign(lex.en,{formPreview:'Form preview',formDefault:'The button opens the ticket directly.',linkedManage:'Manage linked panels',doneEditing:'Done',embedTooLong:'The embeds exceed 6,000 total characters.',formNeedsAnswer:'Add at least one response field.',formChoiceLimits:'Check choices and selection limits.',unsavedError:'Could not save the panel.'});
 Object.assign(lex['pt-BR'],{searchTickets:'Buscar por área, ID ou solicitante',ticketFilters:'Filtros',ticketPanel:'Painel',ticketOwner:'ID do solicitante',ticketAgent:'ID do atendente',fromDate:'Abertura a partir de (UTC)',toDate:'Abertura até (UTC)',ticketDetails:'Detalhes do ticket',ticketId:'ID do canal',ticketClosedAt:'Encerramento',ticketFullHistory:'Consulte o histórico de atendimentos',clearTicketFilters:'Limpar filtros',ticketRefresh:'Atualizar'});
 Object.assign(lex.en,{searchTickets:'Search by area, ID or requester',ticketFilters:'Filters',ticketPanel:'Panel',ticketOwner:'Requester ID',ticketAgent:'Assignee ID',fromDate:'Opened from (UTC)',toDate:'Opened through (UTC)',ticketDetails:'Ticket details',ticketId:'Channel ID',ticketClosedAt:'Closed at',ticketFullHistory:'Browse the support history',clearTicketFilters:'Clear filters',ticketRefresh:'Refresh'});
+Object.assign(lex['pt-BR'],{mainOrder:'Posição do título e da mensagem',controlPlacement:'Posição dos botões e menus',insideAbove:'Dentro da caixa, no início',insideBelow:'Dentro da caixa, no fim',outsideAbove:'Fora da caixa, acima',outsideBelow:'Fora da caixa, abaixo',menuSize:'Opções por menu',sectionBlock:'Seção com miniatura',dividerLine:'Exibir linha',dividerLarge:'Espaçamento maior',linkedAppearance:'Personalizar neste painel',draftFormOff:'O modelo inclui uma pergunta de exemplo. Ative o formulário em Formulários para usar.'});
+Object.assign(lex.en,{mainOrder:'Title and message position',controlPlacement:'Button and menu placement',insideAbove:'Inside the container, at top',insideBelow:'Inside the container, at bottom',outsideAbove:'Outside the container, above',outsideBelow:'Outside the container, below',menuSize:'Options per menu',sectionBlock:'Section with thumbnail',dividerLine:'Show rule',dividerLarge:'Larger spacing',linkedAppearance:'Customize in this panel',draftFormOff:'This template includes a sample question. Enable the form in Forms to use it.'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let templateDraft=null, editorTab=0;
@@ -500,7 +506,7 @@ function extraPanelFields(panel){
   drawQuestions();showForm();
   const formPreview=block(t('formPreview')),previewList=make('div','',{class:'form-preview-list'});formPreview.append(previewList);
   refreshFormPreview=()=>{
-    if(!useForm.checked||!fields.length){previewList.replaceChildren(make('p',t('formDefault'),{class:'muted'}));return}
+    if(!useForm.checked||!fields.length){previewList.replaceChildren(make('p',t(!useForm.checked&&fields.length?'draftFormOff':'formDefault'),{class:'muted'}));return}
     previewList.replaceChildren(...fields.map(item=>{
       const q=item.read();
       if(q.kind==='notice')return discordText(q.text||t('noticeText'));
@@ -614,7 +620,9 @@ function presentationEditor(panel,title,body){
   const author=field(look.author),authorUrl=field(look.authorUrl,900,'url'),authorIcon=field(look.authorIcon,900,'url');
   const thumbnail=field(look.thumbnail,900,'url'),footerIcon=field(look.footerIcon,900,'url');
   const placeholder=field(look.placeholder,150),description=field(look.description,100);
-  const actionsFirst=check(look.actionsFirst);
+  const bodyPosition=select([],String(look.bodyPosition??0));
+  const placement=select([['above',t('insideAbove')],['below',t('insideBelow')],['outsideAbove',t('outsideAbove')],['outsideBelow',t('outsideBelow')]],look.controlPlacement??(look.actionsFirst?'above':'below'));
+  const menuSize=select([5,7,10,15,20,25].map(n=>[String(n),String(n)]),String(look.menuSize??25));
   const faqPicker=select(data.faqs.filter(entry=>entry.published).map(entry=>[entry.id,entry.question]),look.faqId||'',t('noFaqLink'));
   if(!faqPicker.value)faqPicker.value='';
   const styles=['blue','gray','green','red'].map((k,i)=>[String(i+1),t(k)]);
@@ -632,7 +640,8 @@ function presentationEditor(panel,title,body){
   };
   formats.append(label(t('layout'),layout),label(t('navigation'),navigation),label(t('displayTitle'),heading),label(t('color'),color));
   const opener=button(formats,'openButton',look.opener??{style:1});
-  const menuDetails=make('div','');menuDetails.append(label(t('menuPlaceholder'),placeholder),label(t('menuDescription'),description));formats.append(menuDetails);
+  const menuDetails=make('div','');menuDetails.append(label(t('menuPlaceholder'),placeholder),label(t('menuDescription'),description),label(t('menuSize'),menuSize));formats.append(menuDetails);
+  const linkLooks={...look.linkedLooks};
   const links=Array.from(look.links||[]),linkArea=make('div','',{class:'stack'});
   const options=()=>data.panels.filter(p=>p.id!==panel?.id&&!links.includes(p.id));
   const linkPicker=select([],null,t('choose'));
@@ -647,13 +656,22 @@ function presentationEditor(panel,title,body){
       const up=click(t('up'),()=>move(-1));up.disabled=i===0;
       const down=click(t('down'),()=>move(1));down.disabled=i===links.length-1;
       actions.append(up,down,click(t('removeItem'),()=>{links.splice(i,1);drawLinks();preview()}));
-      r.append(make('strong',data.panels.find(p=>p.id===id)?.title||id),actions);return r;
+      const target=data.panels.find(p=>p.id===id), config=target?.rules?.presentation;
+      const advanced=make('details','',{class:'link-appearance'});
+      const initial=linkLooks[id]??{...config?.opener,description:config?.description};
+      const customLabel=field(initial.label,80),customEmoji=field(initial.emoji,32),customDescription=field(initial.description,100),customColor=select(styles,String(initial.style??1));
+      advanced.append(make('summary',t('linkedAppearance')),label(t('buttonLabel'),customLabel),label(t('emoji'),customEmoji),label(t('menuDescription'),customDescription),label(t('buttonColor'),customColor));
+      advanced.addEventListener('input',()=>{
+        linkLooks[id]={label:customLabel.value,emoji:customEmoji.value,description:customDescription.value,style:Number(customColor.value)};
+        preview();
+      });
+      r.append(make('strong',target?.title||id),actions,advanced);return r;
     }));
   }
   formats.append(label(t('linked'),linkPicker),addLink,linkArea);
   drawLinks();
   const embed=make('div','',{class:'stack'});embed.append(label(t('footer'),footer),label(t('image'),image),make('h3',t('fields')));
-  const components=make('div','',{class:'stack'});components.append(label(t('actionsFirst'),actionsFirst),make('h3',t('blocks')));
+  const components=make('div','',{class:'stack'});components.append(label(t('mainOrder'),bodyPosition),make('h3',t('blocks')));
   const fieldItems=[],blockItems=[];
   function columns(existing={}){
     const row=make('div','',{class:'area'});
@@ -671,15 +689,25 @@ function presentationEditor(panel,title,body){
     blockItems.forEach((item,index)=>{
       blockSet.append(item.row);item.up.disabled=index===0;item.down.disabled=index===blockItems.length-1;
     });
+    const at=Math.min(Number(bodyPosition.value||look.bodyPosition||0),blockItems.length);
+    bodyPosition.replaceChildren(...select(Array.from({length:blockItems.length+1},(_,i)=>[String(i),String(i+1)]),String(at)).children);bodyPosition.value=String(at);
     addBlock.disabled=blockItems.length>=8;
   }
   function newBlock(existing={}){
     const row=make('div','',{class:'area'});
-    const kind=select([['text',t('textBlock')],['divider',t('divider')],['image',t('imageBlock')]],existing.kind??'text');
+    const kind=select([['text',t('textBlock')],['divider',t('divider')],['image',t('imageBlock')],['section',t('sectionBlock')]],existing.kind??'text');
     const value=make('textarea',existing.value??'',{maxlength:1500}), fieldLabel=label(t('body'),value);
-    const item={kind,value,row};
-    const change=()=>{fieldLabel.hidden=kind.value==='divider'; fieldLabel.firstChild.textContent=t(kind.value==='image'?'image':'body');preview()};
-    kind.onchange=change;
+    const image=field(existing.image,900,'url'),imageField=label(t('embedThumbnail'),image);
+    const line=check(existing.divider!==false),large=check(existing.spacing===2);
+    const lineField=label(t('dividerLine'),line),largeField=label(t('dividerLarge'),large);
+    const item={kind,value,row,image,line,large};
+    const change=()=>{
+      const divider=kind.value==='divider';
+      fieldLabel.hidden=divider;lineField.hidden=largeField.hidden=!divider;
+      imageField.hidden=image.disabled=kind.value!=='section';
+      fieldLabel.firstChild.textContent=t(kind.value==='image'?'image':'body');
+    };
+    kind.onchange=()=>{change();preview()};change();
     const move=delta=>{
       const index=blockItems.indexOf(item),target=index+delta;
       if(target<0||target>=blockItems.length)return;
@@ -691,13 +719,14 @@ function presentationEditor(panel,title,body){
     controls.append(item.up,item.down,click(t('removeItem'),()=>{
       blockItems.splice(blockItems.indexOf(item),1);row.remove();syncBlocks();preview();
     }));
-    row.append(label(t('blockKind'),kind),fieldLabel,controls);
+    row.append(label(t('blockKind'),kind),fieldLabel,imageField,lineField,largeField,controls);
     blockItems.push(item);syncBlocks();
     fieldLabel.hidden=kind.value==='divider';
   }
   const blockSet=make('div',''), addBlock=click(t('addBlock'),()=>newBlock());
   components.append(blockSet,addBlock);
   for(const item of look.blocks||[])newBlock(item);
+  syncBlocks();bodyPosition.value=String(Math.min(look.bodyPosition??0,blockItems.length));
   formats.append(embed,components);
   const inside=detail('internal');
   const insideMessage=make('textarea',look.inside?.message??'',{maxlength:900});
@@ -725,7 +754,7 @@ function presentationEditor(panel,title,body){
     return {layout:layout.value,navigation:navigation.value,links:links.slice(),color:color.value,title:heading.value,faqId:faqPicker.value,
       footer:footer.value,image:image.value,author:author.value,authorUrl:authorUrl.value,authorIcon:authorIcon.value,thumbnail:thumbnail.value,footerIcon:footerIcon.value,extras:extraCards.map(item=>item.read()),placeholder:placeholder.value,description:description.value,opener:opener(),
       fields:fieldItems.map(x=>({name:x.name.value,value:x.value.value,inline:x.inline.checked})),
-      blocks:blockItems.map(x=>({kind:x.kind.value,value:x.value.value})),actionsFirst:actionsFirst.checked,
+      blocks:blockItems.map(x=>({kind:x.kind.value,value:x.value.value,image:x.image.value,divider:x.line.checked,spacing:x.large.checked?2:1})),bodyPosition:Number(bodyPosition.value),controlPlacement:placement.value,menuSize:Number(menuSize.value),linkedLooks:Object.fromEntries(links.filter(id=>linkLooks[id]).map(id=>[id,linkLooks[id]])),
       inside:{layout:insideLayout.value,message:insideMessage.value,title:insideTitle.value,footer:insideFooter.value,image:insideImage.value,
         color:inherited.checked?'':insideColor.value,actionsFirst:insideFirst.checked,claim:claim(),rename:rename(),close:close(),requestClose:look.inside?.requestClose??{enabled:false}}};
   }
@@ -753,7 +782,7 @@ function presentationEditor(panel,title,body){
   const [openTitle,openColor]=[heading,color].map(node=>node.closest('label'));
   const openButton=opener.fieldset;
   const embedFooter=footer.closest('label'),embedImage=image.closest('label');
-  const placement=actionsFirst.closest('label');
+  const placementField=label(t('controlPlacement'),placement);
   const formatButtons=make('div','',{class:'format-options'});
   const modes=[['embed','embed'],['v2','v2']].map(([value,key])=>click(t(key),()=>{layout.value=value;preview()}));
   formatButtons.append(...modes);
@@ -813,7 +842,7 @@ function presentationEditor(panel,title,body){
   extrasSection.append(extraList,addExtra);
   const embedCard=make('div','',{class:'embed-editor-card'});
   const actions=make('div','',{class:'embed-actions'});actions.append(openColor,duplicate);
-  embedCard.append(actions,embedMeta,openTitle,label(t('body'),body),embed,embedImage,embedFooter,label(t('embedFooterIcon'),footerIcon),components,placement);
+  embedCard.append(actions,embedMeta,openTitle,label(t('body'),body),embed,embedImage,embedFooter,label(t('embedFooterIcon'),footerIcon),components,placementField);
   const linkedDialog=make('dialog','',{'aria-label':t('linkedManage')});
   linkedDialog.append(make('h3',t('linkedManage')),label(t('linked'),linkPicker),addLink,linkArea,click(t('doneEditing'),()=>linkedDialog.close(),{class:'primary'}));
   const manageLinks=click(t('linkedManage'),()=>linkedDialog.showModal());
@@ -821,7 +850,7 @@ function presentationEditor(panel,title,body){
   formats.classList.add('composer-controls');
   formats.replaceChildren(formatButtons,embedCard,extrasSection,optionsGroup,group('linkedFaq',[label(t('linkedFaq'),faqPicker)]));
   embedCard.dataset.group='composerMessage';embedMeta.dataset.group='composerMedia';
-  const publicPlacement=placement;
+  const publicPlacement=placementField;
   const internalPlacement=group('composerPlacement',[firstLabel]);
   compose(inside,[insideLayout],[
     group('composerMessage',[insideTitle.closest('label'),insideMessage.closest('label')],true),
@@ -889,32 +918,48 @@ function presentationEditor(panel,title,body){
       stack.append(renderEmbed({...p,title:p.title||title.value||t('name'),body:body.value||t('body')}),...p.extras.map(renderEmbed));
       message.push(stack);
     }else{
-      message.push(discordText(p.title||title.value||t('name'),true),discordText(body.value||t('body')));
-      for(const block of p.blocks){
-        const node=block.kind==='divider'?make('hr'):block.kind==='image'?previewImage(block.value):discordText(block.value);
-        if(node)message.push(node);
-      }
+      const content=make('div');content.append(discordText(p.title||title.value||t('name'),true),discordText(body.value||t('body')));
+      const blocks=p.blocks.map(block=>{
+        if(block.kind==='divider')return make('hr','',{class:'v2-spacer'+(block.divider?' line':'')+(block.spacing===2?' large':'')});
+        if(block.kind==='image')return previewImage(block.value);
+        if(block.kind==='section'){
+          const section=make('div','',{class:'v2-section-preview'}),thumb=previewImage(block.image);
+          section.append(discordText(block.value));if(thumb)section.append(thumb);return section;
+        }
+        return discordText(block.value);
+      });
+      blocks.splice(p.bodyPosition,0,content);message.push(...blocks.filter(Boolean));
     }
     const fallback=p.navigation==='menu'||links.length?title.value||t('name'):t('previewOpenTicket');
     const items=[[p.opener,fallback],...links.map(id=>{
       const item=data.panels.find(x=>x.id===id);
-      return [item?.rules?.presentation?.opener,item?.title||id];
+      return [p.linkedLooks[id]??item?.rules?.presentation?.opener,item?.title||id];
     })];
     const bar=make('div','',{class:'preview-controls'});
     if(p.navigation==='menu'){
-      const menu=select(items.map(([button,label],i)=>[String(i),[button?.emoji,button?.label||label].filter(Boolean).join(' ')]),'',p.placeholder||t('previewMenu'));
+      const size=Math.max(p.menuSize,p.layout!=='v2'&&p.faqId?Math.ceil(items.length/4):1);
+      for(let offset=0;offset<items.length;offset+=size){
+      const menu=select(items.slice(offset,offset+size).map(([button,label],i)=>[String(i+offset),[button?.emoji,button?.label||label].filter(Boolean).join(' ')]), '',(p.placeholder||t('previewMenu'))+(items.length>size?' · '+(1+offset/size):''));
       menu.setAttribute('aria-label',t('previewMenu'));
       const selection=make('small','',{role:'status'});
       menu.onchange=()=>{
         const index=menu.value===''?-1:Number(menu.value);
         const [button,label]=items[index]??[];
-        const description=index===0?p.description:data.panels.find(x=>x.id===links[index-1])?.rules?.presentation?.description;
+        const description=index===0?p.description:p.linkedLooks[links[index-1]]?.description||data.panels.find(x=>x.id===links[index-1])?.rules?.presentation?.description;
         selection.textContent=label?t('previewChoice')+' · '+(button?.label||label)+(description?' — '+description:''):'';
       };
       bar.append(menu,selection);
+      }
     }else for(const [button,label] of items)bar.append(previewButton(button,label));
     if(p.faqId)bar.append(previewButton({style:2},t('faqButton')));
-    canvas.replaceChildren(...(p.layout==='v2'&&p.actionsFirst?[bar,...message]:[...message,bar]));
+    if(p.layout!=='v2'){canvas.replaceChildren(...message,bar);return}
+    const frame=make('div','',{class:'embed-preview-card v2-message-stack'});
+    frame.style.setProperty('--preview-accent',p.color);
+    frame.append(...message);
+    if(p.controlPlacement==='above')frame.prepend(bar);
+    if(p.controlPlacement==='below')frame.append(bar);
+    canvas.replaceChildren(...(p.controlPlacement==='outsideAbove'?[bar,frame]:p.controlPlacement==='outsideBelow'?[frame,bar]:[frame]));
+
   }
   function previewInside(){
     const p=dataValue(),v=p.inside;
@@ -977,7 +1022,7 @@ function panelsPage(){
     for(const [key,prompt] of [['templateSupport','templateExplain'],['templateBug','templateSteps'],['templateBilling','templateBillingQ'],['templateReport','templateReportQ']]){
       choices.append(click(t(key),()=>{
         dialog.close();
-        openEditor('',{title:t(key),body:t('templateMessage'),rules:{questions:[{kind:'long',label:t(prompt),required:true}]}});
+        openEditor('',{title:t(key),body:t('templateMessage'),rules:{formEnabled:false,questions:[{kind:'long',label:t(prompt),required:true}]}});
       }));
     }
     dialog.append(make('h2',t('templates')),choices,click(t('templateClose'),()=>dialog.close(),{class:'quiet'}));
