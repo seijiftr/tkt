@@ -73,6 +73,16 @@ body{background:radial-gradient(ellipse at 80% 8%,#322047 0,transparent 42%),#10
 .panel-directory .panel-row-detail{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.panel-directory .panel-row-detail a{font-size:13px}
 .panel-state-paused{background:#452a31;color:#ffd4df;border-color:#734453}
 .preview-edit-actions{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0 0}.preview-edit-actions button{font-size:12px;min-height:30px;padding:3px 7px}
+
+.panel-editor-area{padding:0;overflow:visible}.panel-editor-area .panel-editor-head{padding:18px 20px;margin:0;justify-content:space-between;border-bottom:1px solid var(--line)}
+.editor-title-tools,.editor-publish{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.editor-publish label{margin:0}
+.editor-publish .stack{margin:0}.editor-publish-confirm{flex-basis:100%;padding:8px;background:#30203e;border-radius:7px}
+.panel-editor-area .panel-tabs{position:sticky;top:68px;z-index:8;background:#20162d;padding:7px 14px;margin:0;border-bottom:1px solid var(--line);gap:6px}
+.panel-editor-area .panel-tabs button{border-radius:8px;padding:7px 13px}.panel-editor-area .panel-pages{padding:18px 20px}
+.panel-editor-area .save-strip{bottom:8px;margin:0 16px 12px;justify-content:flex-end}
+.panel-editor-area .editor-preview-slot{top:133px}.editor-section{margin-bottom:12px}
+.editor-section h3{margin:0 0 10px}.editor-section select{width:100%}
+@media(max-width:690px){.panel-editor-area .panel-tabs{position:relative;top:auto}.panel-editor-area .panel-pages{padding:13px}.editor-publish{width:100%}}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -115,6 +125,8 @@ Object.assign(lex['pt-BR'],{pickRole:'Adicionar cargo…',removeRole:'Remover ca
 Object.assign(lex.en,{pickRole:'Add a role…',removeRole:'Remove role',defaultTeam:'Server default support team only',roleLimit:'Limit of 20 selected roles',composerMessage:'Content',composerMedia:'Image, color and footer',composerOptions:'Buttons and menu',composerBlocks:'Fields and blocks',composerTicketActions:'Ticket actions',composerStyle:'Appearance',composerPlacement:'Button position'});
 Object.assign(lex['pt-BR'],{panelSearch:'Buscar painel pelo nome',panelState:'Estado do painel',panelEnabled:'Aceitar novos tickets',panelActive:'Ativo',panelPaused:'Pausado',panelNoResults:'Nenhum painel corresponde à busca.',panelNotPublished:'Sem publicação registrada',editMessage:'Editar conteúdo',editMedia:'Editar aparência',editOptions:'Editar opções'});
 Object.assign(lex.en,{panelSearch:'Search panels by name',panelState:'Panel status',panelEnabled:'Accept new tickets',panelActive:'Active',panelPaused:'Paused',panelNoResults:'No panels match your search.',panelNotPublished:'No publication recorded',editMessage:'Edit content',editMedia:'Edit appearance',editOptions:'Edit options'});
+Object.assign(lex['pt-BR'],{openingTab:'Embed',insideTab:'Mensagens',formTab:'Formulários',rolesTab:'Cargos',scheduleTab:'Disponibilidade',loggingTab:'Registros',pinOpening:'Fixar mensagem inicial',naming:'Nome dos canais',nameArea:'Nome do painel',nameMember:'Painel e usuário',requiredRoles:'Cargos exigidos',blockedRoles:'Cargos bloqueados',allRoles:'Exigir todos os cargos selecionados',accountDays:'Idade mínima da conta em dias',memberDays:'Tempo mínimo no servidor em dias',panelLogs:'Canal privado de registros do painel',panelLogNote:'O canal recebe a transcrição dos novos tickets deste painel. Sem seleção, vale o canal padrão do servidor.',resetPanel:'Descartar alterações'});
+Object.assign(lex.en,{openingTab:'Embed',insideTab:'Messages',formTab:'Forms',rolesTab:'Roles',scheduleTab:'Availability',loggingTab:'Logging',pinOpening:'Pin opening message',naming:'Channel naming',nameArea:'Panel name',nameMember:'Panel and username',requiredRoles:'Required roles',blockedRoles:'Blocked roles',allRoles:'Require every selected role',accountDays:'Minimum account age in days',memberDays:'Minimum server membership in days',panelLogs:'Private panel log channel',panelLogNote:'New tickets send transcripts to this channel. Leave empty to use the server default.',resetPanel:'Discard changes'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
@@ -729,15 +741,46 @@ function panelsPage(){
   const body=make('textarea',panel?.body||'',{maxlength:1000,required:''});
   const fields=extraPanelFields(panel),presentation=presentationEditor(panel,title,body);
   const editor=make('form','');
-  const general=make('div','',{class:'stack'});general.append(label(t('name'),title),fields.routing);
+  const rule=panel?.rules??{}, access=rule.access??{};
+  const naming=select([['area',t('nameArea')],['member',t('nameMember')]],rule.naming??'area');
+  const general=make('div','',{class:'stack'});general.append(label(t('name'),title),fields.routing,label(t('naming'),naming));
+  const pin=make('input','',{type:'checkbox'});pin.checked=Boolean(rule.pinOpening);
+  presentation.inside.append(label(t('pinOpening'),pin));
+  const rolePage=block(t('rolesTab'));rolePage.classList.add('editor-section');
+  const makeRoleList=(key,ids)=>{
+    const box=make('fieldset','',{class:'role-menu'}),list=make('div','',{class:'role-chips'});
+    const selected=new Set(ids??[]),choice=select([],null,t('pickRole'));
+    choice.setAttribute('aria-label',t(key));
+    function draw(){
+      choice.replaceChildren(...select(data.roles.filter(role=>!selected.has(role.id)).map(role=>[role.id,role.name]),'',t('pickRole')).children);
+      choice.disabled=selected.size>=20||choice.options.length<2;
+      list.replaceChildren(...[...selected].map(id=>{
+        const name=data.roles.find(role=>role.id===id)?.name||id;
+        const item=make('span','',{class:'role-chip'});
+        item.append(make('span',name),click('×',()=>{selected.delete(id);draw();choice.focus()},{'aria-label':t('removeRole')+' '+name}));
+        return item;
+      }));
+    }
+    choice.onchange=()=>{if(choice.value){selected.add(choice.value);draw()}};
+    box.append(make('legend',t(key)),list,choice);draw();rolePage.append(box);
+    return selected;
+  };
+  const required=makeRoleList('requiredRoles',access.required),blocked=makeRoleList('blockedRoles',access.blocked);
+  const all=make('input','',{type:'checkbox'});all.checked=Boolean(access.all);
+  const minimum=(key,value)=>{const input=make('input','',{type:'number',min:'0',max:'365',step:'1',value:value??0});rolePage.append(label(t(key),input));return input};
+  rolePage.append(label(t('allRoles'),all));
+  const accountDays=minimum('accountDays',access.accountDays),memberDays=minimum('memberDays',access.memberDays);
+  const logs=block(t('loggingTab'));logs.classList.add('editor-section');
+  const logChannel=select(data.channels.filter(channel=>channel.type===0).map(c=>[c.id,'# '+c.name]),rule.logChannel||'',t('inherit'));
+  logs.append(label(t('panelLogs'),logChannel),make('p',t('panelLogNote'),{class:'muted'}));
   const opening=presentation.formats;
   for(const section of [fields.routing,fields.questions,fields.hours,presentation.formats,presentation.inside])section.open=true;
-  const publication=make('div','',{class:'stack'});
+  const publication=make('div','',{class:'editor-publish'});
   if(!panel||demo)publication.append(make('p',t(!panel?'noPublication':'demoMode'),{class:'muted'}));
   let updatePublication=()=>{};
   if(panel&&!demo){
     const dest=select(data.channels.filter(c=>c.type!==4).map(c=>[c.id,'# '+c.name]),panel.publication?.channel||'',t('choose'));
-    const confirmation=make('div','',{class:'stack'});confirmation.hidden=true;
+    const confirmation=make('div','',{class:'editor-publish-confirm'});confirmation.hidden=true;
     const publish=click(t('publish'),()=>{confirmation.hidden=false;confirmButton.focus()});
     const confirmButton=click(t('publishNow'),async()=>{
       confirmButton.disabled=true; await save('publish',{id:panel.id,channel:dest.value});
@@ -748,7 +791,7 @@ function panelsPage(){
     dest.onchange=()=>updatePublication(isDirty());
     publication.append(label(t('channel'),dest),publish,confirmation);
   }
-  const entries=[['generalTab',general],['openingTab',opening],['insideTab',presentation.inside],['formTab',fields.questions],['scheduleTab',fields.hours],['publishTab',publication]];
+  const entries=[['generalTab',general],['openingTab',opening],['insideTab',presentation.inside],['formTab',fields.questions],['rolesTab',rolePage],['scheduleTab',fields.hours],['loggingTab',logs]];
   const tabs=make('div','',{class:'panel-tabs',role:'tablist','aria-label':t('editorTabs')});
   const sections=make('div','',{class:'panel-pages'});
   const tabButtons=[],pages=[];
@@ -781,8 +824,8 @@ function panelsPage(){
   const button=make('button',t('savePanel'),{class:'primary',type:'submit'});
   let saving=false;
   const note=make('p','',{class:'muted','aria-live':'polite'});
-  const strip=make('div','',{class:'save-strip'});strip.append(note,button);
-  const values=()=>({id:panelId,title:title.value,body:body.value,rules:{...fields.value(),presentation:presentation.value()}});
+  const strip=make('div','',{class:'save-strip'});strip.append(note,click(t('resetPanel'),()=>{if(isDirty()&&window.confirm(t('changes')+'.'))render()},{class:'quiet'}),button);
+  const values=()=>({id:panelId,title:title.value,body:body.value,rules:{...fields.value(),naming:naming.value,pinOpening:pin.checked,logChannel:logChannel.value,access:{required:[...required].sort(),blocked:[...blocked].sort(),all:all.checked,accountDays:Number(accountDays.value),memberDays:Number(memberDays.value)},presentation:presentation.value()}});
   const baseline=JSON.stringify(values());
   const isDirty=()=>JSON.stringify(values())!==baseline;
   function refresh(){
@@ -794,7 +837,7 @@ function panelsPage(){
   }
   editor.addEventListener('input',refresh);
   editor.addEventListener('change',refresh);
-  editor.addEventListener('click',e=>{if(!e.target.closest('#panel-page-5'))queueMicrotask(refresh)});
+  editor.addEventListener('click',e=>{if(!e.target.closest('.editor-publish'))queueMicrotask(refresh)});
   editor.onsubmit=async e=>{
     e.preventDefault();
     const item=values();
@@ -811,15 +854,14 @@ function panelsPage(){
     if(isDirty()&&!window.confirm(t('changes')+'.'))return;
     panelEditing=false;panelId='';render();
   },{class:'quiet'});
-  head.append(back,make('h2',panel?.title||t('add')));
+  const tools=make('div','',{class:'editor-title-tools'});tools.append(back,make('h2',panel?.title||t('add')));
+  head.append(tools,publication);
   if(panel){
     const remove=click(t('deletePanel'),()=>deletePanel(panel,remove),{class:'secondary'});
-    head.append(remove);
+    tools.append(remove);
   }
-  const rail=make('div','',{class:'editor-rail'});rail.append(tabs,strip);
-  const columns=make('div','',{class:'panel-config'});columns.append(rail,sections);
-  editor.append(columns);selectTab(0);refresh();
-  form.replaceChildren(head,editor);layout.append(form);return layout;
+  editor.append(head,tabs,sections,strip);selectTab(0);refresh();
+  form.classList.add('panel-editor-area');form.replaceChildren(editor);layout.append(form);return layout;
 }
 function faqPage(){
   const layout=make('div','',{class:'split'}),list=block(t('faq')),editor=block(t(faqId?'edit':'newEntry'));
