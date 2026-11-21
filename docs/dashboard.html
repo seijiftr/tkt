@@ -110,6 +110,10 @@ dialog{background:#221632;color:var(--ink);border:1px solid #79569d;border-radiu
 .embed-editor-card>summary{font-weight:700}.extra-embed-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .format-options button,.embed-editor-card,.embed-preview-card{transition:border-color .18s,background-color .18s}
 @media(prefers-reduced-motion:reduce){.format-options button,.embed-editor-card,.embed-preview-card{transition:none}}
+
+.ticket-filters{margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.ticket-filters summary{cursor:pointer}.ticket-filter-grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:10px}.ticket-filter-grid label{margin:0}
+.ticket-details dl{display:grid;grid-template-columns:minmax(95px,.6fr) 1fr;gap:7px 12px}.ticket-details dd{margin:0;overflow-wrap:anywhere}.ticket-details dt{color:var(--muted)}.ticket-details .actions{margin-top:14px}
+.tickets-table .ticket-open-detail{padding:3px 7px;min-height:30px;text-align:left;font-size:14px;background:transparent}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -164,6 +168,8 @@ Object.assign(lex['pt-BR'],{linkedFaq:'Pergunta frequente vinculada',noFaqLink:'
 Object.assign(lex.en,{linkedFaq:'Linked FAQ entry',noFaqLink:'No FAQ entry linked',faqButton:'Frequently asked question'});
 Object.assign(lex['pt-BR'],{formPreview:'Prévia do formulário',formDefault:'O Discord vai pedir uma descrição.',linkedManage:'Gerenciar painéis vinculados',doneEditing:'Concluir',embedTooLong:'Os embeds somam mais de 6.000 caracteres.',formNeedsAnswer:'Adicione ao menos um campo de resposta.',formChoiceLimits:'Confira as opções e os limites de seleção.',unsavedError:'Não foi possível salvar este painel.'});
 Object.assign(lex.en,{formPreview:'Form preview',formDefault:'Discord will ask for a description.',linkedManage:'Manage linked panels',doneEditing:'Done',embedTooLong:'The embeds exceed 6,000 total characters.',formNeedsAnswer:'Add at least one response field.',formChoiceLimits:'Check choices and selection limits.',unsavedError:'Could not save the panel.'});
+Object.assign(lex['pt-BR'],{searchTickets:'Buscar por área, ID ou solicitante',ticketFilters:'Filtros',ticketPanel:'Painel',ticketOwner:'ID do solicitante',ticketAgent:'ID do atendente',fromDate:'Abertura a partir de (UTC)',toDate:'Abertura até (UTC)',ticketDetails:'Detalhes do ticket',ticketId:'ID do canal',ticketClosedAt:'Encerramento',ticketFullHistory:'Consulte o histórico de atendimentos',clearTicketFilters:'Limpar filtros',ticketRefresh:'Atualizar'});
+Object.assign(lex.en,{searchTickets:'Search by area, ID or requester',ticketFilters:'Filters',ticketPanel:'Panel',ticketOwner:'Requester ID',ticketAgent:'Assignee ID',fromDate:'Opened from (UTC)',toDate:'Opened through (UTC)',ticketDetails:'Ticket details',ticketId:'Channel ID',ticketClosedAt:'Closed at',ticketFullHistory:'Browse the support history',clearTicketFilters:'Clear filters',ticketRefresh:'Refresh'});
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let templateDraft=null, editorTab=0;
@@ -248,19 +254,26 @@ function queuePage(){
   const area=make('section','',{class:'area'});
   const heading=make('div','',{class:'queue-head'});
   const names=make('div');
-  names.append(make('h2',t('queue')),make('p',t('recent'),{class:'muted'}));
+  names.append(make('h2',t('queue')),make('p',t('ticketFullHistory'),{class:'muted'}));
   const switcher=make('div','',{class:'queue-toggle'});
   const modes=['table','board'].map(mode=>click(t(mode),()=>{
     queueMode=mode;localStorage.setItem('tkt-queue-view',mode);page=0;show();
   },{'aria-pressed':'false'}));
   switcher.append(...modes);heading.append(names,switcher);
-  const search=make('input','',{type:'search',class:'search',placeholder:t('search'),'aria-label':t('search')});
+  const search=make('input','',{type:'search',class:'search',placeholder:t('searchTickets'),'aria-label':t('searchTickets')});
   const filter=select([['all',t('all')],['open',t('open')],['closed',t('done')]],'all');
   filter.setAttribute('aria-label',t('state'));
   const priorities=['baixa','normal','alta','urgente'];
   const priority=select([['all',t('all')+' · '+t('priority')],...priorities.map(key=>[key,t(key)])],'all');
   priority.setAttribute('aria-label',t('priority'));
-  const controls=make('div','',{class:'filters'});controls.append(search,filter,priority);
+  const panel=select(data.panels.map(p=>[p.id,p.title]),'',t('all'));
+  const filterBox=make('details','',{class:'ticket-filters'});
+  const filters=make('div','',{class:'ticket-filter-grid'});
+  const owner=make('input','',{inputmode:'numeric',maxlength:20}),agent=make('input','',{inputmode:'numeric',maxlength:20});
+  const from=make('input','',{type:'date'}),to=make('input','',{type:'date'});
+  filters.append(label(t('ticketPanel'),panel),label(t('ticketOwner'),owner),label(t('ticketAgent'),agent),label(t('fromDate'),from),label(t('toDate'),to));
+  filterBox.append(make('summary',t('ticketFilters')),filters);
+  const controls=make('div','',{class:'filters'});controls.append(search,filter,priority,click(t('ticketRefresh'),()=>show()));
   const viewport=make('div','',{class:'scroll-table'});
   const table=make('table','',{class:'tickets-table'});
   const thead=make('thead'), header=make('tr'), tbody=make('tbody');
@@ -273,15 +286,45 @@ function queuePage(){
   const next=click(t('next'),()=>{page++;show()});
   const buttons=make('div','',{class:'actions'});buttons.append(prev,next);pager.append(summary,buttons);
   const pageSize=8;
+  let searchRequest=0,searchTimer;
+  const resultStatus=make('p','',{class:'muted','aria-live':'polite'});
   const board=make('div','',{class:'ticket-board'});
-  const ticketName=q=>q.channel&&q.closed===null?make('a',q.area,{href:'https://discord.com/channels/'+guild+'/'+q.channel,rel:'noopener noreferrer',target:'_blank'}):make('strong',q.area);
+  const detail=make('dialog','',{'aria-label':t('ticketDetails'),class:'ticket-details'});
+  const channelLink=q=>make('a',t('visit'),{href:'https://discord.com/channels/'+guild+'/'+q.channel,rel:'noopener noreferrer',target:'_blank'});
+  function viewTicket(q){
+    const pairs=[['ticketId',q.channel],['ticketOwner',q.owner],['ticketAgent',q.agent],['created',date(q.opened)],['ticketClosedAt',q.closed?date(q.closed):''],['priority',t(q.priority||'normal')]];
+    const list=make('dl');
+    for(const [key,value] of pairs)if(value)list.append(make('dt',t(key)),make('dd',value));
+    const actions=make('div','',{class:'actions'});
+    if(q.channel&&q.closed===null)actions.append(channelLink(q));
+    if(q.transcript)actions.append(transcriptLink(q));
+    actions.append(click(t('doneEditing'),()=>detail.close(),{class:'quiet'}));
+    detail.replaceChildren(make('h2',q.area),list,actions);detail.showModal();
+  }
+  const ticketName=q=>click(q.area,()=>viewTicket(q),{class:'ticket-open-detail','aria-label':t('ticketDetails')+' · '+q.area});
   const transcriptLink=q=>make('a',t('viewTranscript'),{href:'/transcripts/'+q.transcript,target:'_blank',rel:'noopener noreferrer'});
   const priorityLabel=q=>make('span',t(priorities.includes(q.priority)?q.priority:'normal'),{class:'priority','data-priority':q.priority});
-  function show(){
-    const query=search.value.trim().toLocaleLowerCase(language);
-    const items=data.queue.items.filter(q=>q.area.toLocaleLowerCase(language).includes(query)&&(filter.value==='all'||(filter.value==='open')===(q.closed===null))&&(priority.value==='all'||q.priority===priority.value));
-    page=Math.max(0,Math.min(page,Math.ceil(items.length/pageSize)-1));
-    const start=page*pageSize, visible=items.slice(start,start+pageSize);
+  async function show(){
+    const token=++searchRequest;
+    const query=search.value.trim(),showBoard=queueMode==='board',limit=showBoard?24:pageSize;
+    const params=new URLSearchParams({q:query,state:filter.value,priority:priority.value,panel:panel.value,owner:owner.value.trim(),agent:agent.value.trim(),after:from.value,before:to.value,page:String(page),limit:String(limit)});
+    let items,total;
+    if(demo){
+      const matches=data.queue.items.filter(q=>q.area.toLocaleLowerCase(language).includes(query.toLocaleLowerCase(language))&&
+        (filter.value==='all'||(filter.value==='open')===(q.closed===null))&&(priority.value==='all'||q.priority===priority.value)&&
+        (!panel.value||q.panel===panel.value)&&(!owner.value||q.owner===owner.value)&&(!agent.value||q.agent===agent.value)&&
+        (!from.value||q.opened>=Date.parse(from.value))&&(!to.value||q.opened<Date.parse(to.value)+86400000));
+      total=matches.length;items=matches.slice(page*limit,(page+1)*limit);
+    }else{
+      resultStatus.textContent=t('loading');
+      try{({items,total}=await api('/api/servers/'+guild+'/queue?'+params))}
+      catch(error){if(token===searchRequest&&area.isConnected)resultStatus.textContent=t(error.message);return}
+      if(token!==searchRequest||!area.isConnected)return;
+    }
+    resultStatus.textContent='';
+    const last=Math.max(0,Math.ceil(total/limit)-1);
+    if(page>last){page=last;return show()}
+    const start=page*limit,visible=items;
     tbody.replaceChildren(...visible.map(q=>{
       const row=make('tr'), name=make('td'), state=make('td');
       const link=ticketName(q);
@@ -289,7 +332,6 @@ function queuePage(){
       name.append(link);if(q.transcript)name.append(make('br'),transcriptLink(q));state.append(make('span',t(opened?'open':'done'),{class:'pill '+(opened?'open':'closed')}));
       const level=make('td');level.append(priorityLabel(q));row.append(name,state,level,make('td',date(q.opened)));return row;
     }));
-    const showBoard=queueMode==='board';
     modes.forEach((button,index)=>button.setAttribute('aria-pressed',String(index===Number(showBoard))));
     if(showBoard){
       const groups={unassigned:[],inProgress:[],done:[]};
@@ -309,12 +351,19 @@ function queuePage(){
     board.hidden=!showBoard||!items.length;
     viewport.hidden=showBoard||!items.length;
     empty.hidden=items.length>0;
-    pager.hidden=showBoard||!items.length;
-    summary.textContent=(start+1)+'–'+(start+visible.length)+' '+t('of')+' '+items.length;
-    prev.disabled=page===0;next.disabled=start+visible.length>=items.length;
+    pager.hidden=!total;
+    summary.textContent=(start+1)+'–'+(start+visible.length)+' '+t('of')+' '+total;
+    prev.disabled=page===0;next.disabled=start+visible.length>=total;
   }
-  search.oninput=filter.onchange=priority.onchange=()=>{page=0;show()};
-  show();area.append(heading,controls,viewport,board,empty,pager);return area;
+  const refresh=()=>{page=0;show()};
+  const delayed=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refresh,200)};
+  search.oninput=owner.oninput=agent.oninput=delayed;
+  for(const input of [filter,priority,panel,owner,agent,from,to])input.onchange=refresh;
+  filterBox.append(click(t('clearTicketFilters'),()=>{
+    search.value=owner.value=agent.value=from.value=to.value=panel.value='';
+    filter.value=priority.value='all';refresh();
+  }));
+  area.append(heading,controls,filterBox,resultStatus,viewport,board,empty,pager,detail);show();return area;
 }
 async function save(action,body){
   const server=guild;
