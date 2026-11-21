@@ -26,6 +26,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS ticket_close_requests (
     channel TEXT PRIMARY KEY, id TEXT NOT NULL, requester TEXT NOT NULL, reason TEXT NOT NULL, message TEXT
   );
+  CREATE TABLE IF NOT EXISTS ticket_transcripts (id TEXT PRIMARY KEY, channel TEXT NOT NULL UNIQUE, guild TEXT NOT NULL, owner TEXT NOT NULL, html BLOB NOT NULL);
   CREATE TABLE IF NOT EXISTS ticket_channel_deletions (channel TEXT PRIMARY KEY, due INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS ticket_notes (
     id INTEGER PRIMARY KEY, channel TEXT NOT NULL, author TEXT NOT NULL, body TEXT NOT NULL, created INTEGER NOT NULL
@@ -330,6 +331,7 @@ async function transcript(channel,i,record,reason='') {
   const lang=translated(i,'pt-BR','en');
   const format=new Intl.DateTimeFormat(lang,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'});
   const messages=pages.flat().reverse();
+  const messagesById=new Set(messages.map(message=>message.id));
   const rows=messages.map(message=>{
     const name=escapeHtml(message.member?.displayName||message.author.globalName||message.author.username);
     const avatar=attachmentUrl(message.author.displayAvatarURL?.({size:64}));
@@ -338,12 +340,20 @@ async function transcript(channel,i,record,reason='') {
       return url?'<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+label+'</a>':label;
     });
     const embeds=message.embeds.map(embed=>[embed.title,embed.description,...embed.fields.map(field=>field.name+': '+field.value)].filter(Boolean).join('\n'));
-    const contents=[message.content,...embeds,...componentTexts(message.components.map(item=>item.toJSON()))].filter(Boolean);
+    const components=message.components.map(item=>item.toJSON());
+    const contents=[message.content,...componentTexts(components)].filter(Boolean);
+    const buttonsIn=items=>items.flatMap(item=>item.type===2&&item.label?[item.label]:buttonsIn(item.components??[]));
+    const actions=buttonsIn(components);
+    const reply=message.reference?.messageId;
+    const replyInArchive=messagesById.has(reply);
     const date=message.createdAt;
-    return '<article>'+(avatar?'<img alt="" loading="lazy" src="'+avatar+'">':'<span class="avatar" aria-hidden="true">'+name.slice(0,1)+'</span>')+
-      '<div><div class="meta"><strong>'+name+'</strong>'+ (message.author.bot?'<small>APP</small>':'')+
+    return '<article id="m-'+escapeHtml(message.id)+'">'+ (avatar?'<img alt="" loading="lazy" src="'+avatar+'">':'<span class="avatar" aria-hidden="true">'+name.slice(0,1)+'</span>')+
+      '<div>'+(replyInArchive?'<a class="reply" href="#m-'+escapeHtml(reply)+'">'+translated(i,'↳ Ver mensagem respondida','↳ View replied message')+'</a>':'')+
+      '<div class="meta"><strong>'+name+'</strong>'+ (message.author.bot?'<small>APP</small>':'')+
       '<time datetime="'+date.toISOString()+'">'+format.format(date)+' UTC</time></div>'+
       contents.map(value=>'<div class="text">'+escapeHtml(value)+'</div>').join('')+
+      embeds.map(value=>'<div class="text embed">'+escapeHtml(value)+'</div>').join('')+
+      (actions.length?'<div class="actions">'+actions.map(value=>'<span>'+escapeHtml(value)+'</span>').join('')+'</div>':'')+
       (files.length?'<ul>'+files.map(file=>'<li>'+file+'</li>').join('')+'</ul>':'')+'</div></article>';
   }).join('');
   const title=escapeHtml(record.area), channelName=escapeHtml(channel.name||channel.id);
@@ -352,11 +362,11 @@ async function transcript(channel,i,record,reason='') {
   const html='<!doctype html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
     '<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; img-src https://cdn.discordapp.com https://media.discordapp.net">'+
     '<meta name="referrer" content="no-referrer"><title>'+transcriptTitle+' · '+title+'</title><style>'+
-    ':root{color-scheme:dark;font:16px/1.55 system-ui;background:#100c1a;color:#f5eefe}*{box-sizing:border-box}body{margin:0}main{max-width:920px;margin:auto;padding:clamp(16px,5vw,48px)}header{padding:24px;background:#251639;border:1px solid #493264;border-radius:16px;margin-bottom:18px}h1{margin:7px 0;font-size:clamp(25px,5vw,40px);line-height:1.1;overflow-wrap:anywhere}p{margin:8px 0}.label,a{color:#d8b8ff}.label{font-weight:700}article{display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;padding:15px 8px;border-bottom:1px solid #332443}article img,.avatar{width:36px;height:36px;border-radius:50%;background:#4a2e69}.avatar{display:grid;place-items:center}.meta{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}time,small,footer,.details{color:#c3b1d1}time,small{font-size:.78rem}.text{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}li{overflow-wrap:anywhere}ul{margin:5px 0}footer{padding-top:18px}</style></head><body><main><header>'+
+    ':root{color-scheme:dark;font:16px/1.55 system-ui;background:#100c1a;color:#f5eefe}*{box-sizing:border-box}body{margin:0}main{max-width:920px;margin:auto;padding:clamp(16px,5vw,48px)}header{padding:24px;background:#251639;border:1px solid #493264;border-radius:16px;margin-bottom:18px}h1{margin:7px 0;font-size:clamp(25px,5vw,40px);line-height:1.1;overflow-wrap:anywhere}p{margin:8px 0}.label,a{color:#d8b8ff}.label{font-weight:700}article{display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;padding:15px 8px;border-bottom:1px solid #332443}article img,.avatar{width:36px;height:36px;border-radius:50%;background:#4a2e69}.avatar{display:grid;place-items:center}.meta{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}time,small,footer,.details{color:#c3b1d1}time,small{font-size:.78rem}.text{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}li{overflow-wrap:anywhere}ul{margin:5px 0}footer{padding-top:18px}.embed{max-width:560px;background:#241832;border-left:3px solid #a471eb;border-radius:5px;padding:10px 12px}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}.actions span{background:#342344;padding:4px 9px;border-radius:6px}.reply{display:inline-block;font-size:.82rem;margin-bottom:4px}article:target{background:#302040}</style></head><body><main><header>'+
     '<span class="label">TKT · '+transcriptTitle+'</span><h1>'+title+'</h1><p>#'+channelName+' · '+escapeHtml(channel.id)+'</p>'+
     '<p class="details">'+metadata.map(escapeHtml).join(' · ')+'</p>'+
     (reason?'<p>'+translated(i,'Motivo','Reason')+' · '+escapeHtml(reason)+'</p>':'')+
-    '</header>'+rows+'<footer>TKT · Discord</footer></main></body></html>';
+    '</header>'+rows+'<footer>TKT · '+translated(i,'Gerada em','Generated on')+' '+format.format(Date.now())+' UTC</footer></main></body></html>';
   return new AttachmentBuilder(Buffer.from(html),{name:'ticket-' + channel.id + '.html'});
 }
 
@@ -523,7 +533,23 @@ async function manage(i, config, action, requestId) {
       if (log.id === channel.id || !log.isTextBased()) throw new Error('Configure um canal separado para os registros.');
       if (log.permissionsFor(i.guild.roles.everyone)?.has(Permission.ViewChannel)) throw new Error(translated(i,'O canal de registros precisa ser privado.',"The log channel must be private."));
       const file = await transcript(channel,i,record,reason);
-      await log.send({content:'Ticket **'+channel.id+'** '+translated(i,'encerrado por','closed by')+' <@'+i.user.id+'>.'+(reason?'\n'+translated(i,'Motivo','Reason')+': '+reason:''), files:[file],allowedMentions:allowed});
+      const stored=db.prepare('SELECT id FROM ticket_transcripts WHERE channel=?').get(channel.id);
+      const transcriptId=stored?.id??randomUUID();
+      const dashboardOrigin=new URL(process.env.DASHBOARD_ORIGIN||'http://127.0.0.1:'+(process.env.DASHBOARD_PORT||4310));
+      const transcriptLink=new URL('/transcripts/'+transcriptId,dashboardOrigin).href;
+      const requester=await client.users.fetch(record.owner).catch(()=>null);
+      const userDetails=(id,user)=>'<@'+id+'>'+ (user?.username?' · @'+user.username:'')+'\nID: '+id;
+      const logCard=new EmbedBuilder().setColor(0xa879ef).setTitle(translated(i,'Ticket fechado','Ticket closed'))
+        .addFields(
+          {name:translated(i,'Encerramento','Closure'),value:translated(i,'Canal','Channel')+' · '+(channel.name||record.area)+'\nID: '+channel.id+'\n'+translated(i,'Motivo','Reason')+' · '+(reason||translated(i,'Sem motivo informado','No reason provided'))},
+          {name:translated(i,'Solicitante','Requester'),value:userDetails(record.owner,requester),inline:true},
+          {name:translated(i,'Fechado por','Closed by'),value:userDetails(i.user.id,i.user),inline:true}
+        ).setFooter({text:'TKT'}).setTimestamp();
+      const transcriptButton=new ActionRowBuilder().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link)
+        .setLabel(translated(i,'Ver transcrição','View transcript')).setURL(transcriptLink));
+      db.prepare('INSERT INTO ticket_transcripts(id,channel,guild,owner,html) VALUES(?,?,?,?,?) ON CONFLICT(channel) DO UPDATE SET html=excluded.html')
+        .run(transcriptId,channel.id,i.guildId,record.owner,file.attachment);
+      await log.send({embeds:[logCard],components:[transcriptButton],files:[file],allowedMentions:allowed});
       const countdown=translated(i,'O ticket será encerrado e o canal será excluído em 5 segundos.','This ticket will close and the channel will be deleted in 5 seconds.');
       await channel.send({content:countdown,allowedMentions:allowed}).catch(error=>console.error('TKT countdown:',error.code??error.name));
       const closedAt = Date.now();
@@ -543,10 +569,9 @@ async function manage(i, config, action, requestId) {
         await resolveCloseCard(i,closeRequest,translated(i,'Ticket encerrado.','Ticket closed.'));
       }
       await i.editReply(translated(i,'Histórico salvo. O canal será excluído em 5 segundos.','Transcript saved. The channel will be deleted in 5 seconds.')).catch(console.error);
-      const requester = await client.users.fetch(record.owner).catch(()=>null);
       if (requester) await requester.send({
         content:translated(i,'Como foi o atendimento em','How was your support experience in')+' **'+i.guild.name+'**?',
-        components:[buttons(...[1,2,3,4,5].map(n=>['v:rate:'+channel.id+':'+closedAt+':'+n,String(n),ButtonStyle.Secondary]))],
+        components:[transcriptButton,buttons(...[1,2,3,4,5].map(n=>['v:rate:'+channel.id+':'+closedAt+':'+n,String(n),ButtonStyle.Secondary]))],
         allowedMentions:allowed,
       }).catch(()=>{});
       return;
