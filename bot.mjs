@@ -292,7 +292,8 @@ function firstTicketMessage(i,area,description,answers,warning,panel,files){
   const presentation=panel?.rules.presentation;
   const inside=presentation?.inside;
   const title=inside?.title||area;
-  const color=parseInt((inside?.color||(inside?.layout==='v2'?presentation.color:'#9a62e7')).slice(1),16);
+  const defaultColor=inside?.layout==='v2'?presentation.color??'#a079ec':'#9a62e7';
+  const color=parseInt((inside?.color||defaultColor).slice(1),16);
   const content=[warning,inside?.message].filter(Boolean);
   const fields=[{name:translated(i,'Solicitante','Requester'),value:'<@'+i.user.id+'>'},...answers];
   const actions=ticketActions(i,panel);
@@ -312,6 +313,9 @@ function firstTicketMessage(i,area,description,answers,warning,panel,files){
     embeds:[embed],allowedMentions:allowed,components:actions,files};
 }
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+function componentButtonLabels(items){
+  return items.flatMap(item=>item.type===2&&item.label?[item.label]:componentButtonLabels(item.components??[]));
+}
 function attachmentUrl(raw){
   try{
     const url=new URL(raw);
@@ -342,8 +346,7 @@ async function transcript(channel,i,record,reason='') {
     const embeds=message.embeds.map(embed=>[embed.title,embed.description,...embed.fields.map(field=>field.name+': '+field.value)].filter(Boolean).join('\n'));
     const components=message.components.map(item=>item.toJSON());
     const contents=[message.content,...componentTexts(components)].filter(Boolean);
-    const buttonsIn=items=>items.flatMap(item=>item.type===2&&item.label?[item.label]:buttonsIn(item.components??[]));
-    const actions=buttonsIn(components);
+    const actions=componentButtonLabels(components);
     const reply=message.reference?.messageId;
     const replyInArchive=messagesById.has(reply);
     const date=message.createdAt;
