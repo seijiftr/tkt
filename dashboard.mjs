@@ -385,9 +385,11 @@ createServer(async(req,res)=>{
             if(e.discordStatus!==404||e.discordCode!==10003)cleanupPending=true;
           }
         }
+        let payload;
+        try{payload=panelMessage(panel,linked,locale)}catch{throw error(400,'componentLimit')}
         const msg=await discord('/channels/'+data.channel+'/messages',bot,{
           method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify(panelMessage(panel,linked,locale))
+          body:JSON.stringify(payload)
         });
         db.prepare('INSERT INTO panel_publications VALUES(?,?,?)').run(panel.id,data.channel,msg.id);
         for(const old of db.prepare('SELECT channel,message FROM panel_publications WHERE panel=? AND message<>?').all(panel.id,msg.id)){
