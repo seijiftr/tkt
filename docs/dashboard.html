@@ -104,6 +104,12 @@ dialog{background:#221632;color:var(--ink);border:1px solid #79569d;border-radiu
 .panel-editor-area .save-strip .save-error{color:#ffbdcf}.panel-editor-area .save-strip{flex-wrap:wrap}
 @media(max-width:1100px){.editor-preview-layout{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:640px){.panel-editor-area .panel-editor-head,.panel-editor-area .panel-pages{padding:10px}.panel-editor-area .save-strip{margin-inline:8px}.form-picker-grid{grid-template-columns:1fr}}
+
+.embed-stack{display:grid;gap:9px}.embed-preview-card{border-left:4px solid var(--preview-accent);padding:10px 12px;border-radius:8px;background:#251936;min-width:0;display:flow-root}
+.embed-preview-card>.preview-markdown{margin-top:6px}.embed-preview-card .preview-fields{margin:8px 0}.embed-preview-card .embed-footer{margin-top:7px;color:var(--muted);font-size:13px}
+.embed-editor-card>summary{font-weight:700}.extra-embed-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.format-options button,.embed-editor-card,.embed-preview-card{transition:border-color .18s,background-color .18s}
+@media(prefers-reduced-motion:reduce){.format-options button,.embed-editor-card,.embed-preview-card{transition:none}}
 </style></head>
 <body>
 <header class="topbar"><strong class="brand"><span class="mark" aria-hidden="true">✦</span>TKT</strong><div class="top-actions"><span id="user" class="identity"></span><select id="language" aria-label="Idioma / Language"><option value="pt-BR">Português (Brasil)</option><option value="en">English</option></select><button id="logout" class="quiet" hidden></button></div></header>
@@ -668,7 +674,7 @@ function presentationEditor(panel,title,body){
   editor.append(card);
   function dataValue(){
     return {layout:layout.value,navigation:navigation.value,links:links.slice(),color:color.value,title:heading.value,faqId:faqPicker.value,
-      footer:footer.value,image:image.value,author:author.value,authorUrl:authorUrl.value,authorIcon:authorIcon.value,thumbnail:thumbnail.value,footerIcon:footerIcon.value,extras:extraCards.map(item=>({title:item.title.value,body:item.body.value})),placeholder:placeholder.value,description:description.value,opener:opener(),
+      footer:footer.value,image:image.value,author:author.value,authorUrl:authorUrl.value,authorIcon:authorIcon.value,thumbnail:thumbnail.value,footerIcon:footerIcon.value,extras:extraCards.map(item=>item.read()),placeholder:placeholder.value,description:description.value,opener:opener(),
       fields:fieldItems.map(x=>({name:x.name.value,value:x.value.value,inline:x.inline.checked})),
       blocks:blockItems.map(x=>({kind:x.kind.value,value:x.value.value})),actionsFirst:actionsFirst.checked,
       inside:{layout:insideLayout.value,message:insideMessage.value,title:insideTitle.value,footer:insideFooter.value,image:insideImage.value,
@@ -707,18 +713,54 @@ function presentationEditor(panel,title,body){
   const extraCards=[],extraList=make('div','',{class:'stack'});
   const extrasSection=make('div','',{class:'stack'});
   const addExtra=click(t('addEmbed'),()=>addExtraCard({}));
-  const duplicate=click(t('duplicateEmbed'),()=>addExtraCard({title:heading.value||title.value,body:body.value}));
-  function syncExtras(){addExtra.disabled=duplicate.disabled=extraCards.length>=3}
-  function addExtraCard(item){
+  const duplicate=click(t('duplicateEmbed'),()=>{
+    const p=dataValue();addExtraCard({...p,title:p.title||title.value,body:body.value});preview();
+  });
+  function syncExtras(){
+    addExtra.disabled=duplicate.disabled=extraCards.length>=3;
+    for(const item of extraCards)item.copy.disabled=addExtra.disabled;
+  }
+  function addExtraCard(item,initial=false){
     if(extraCards.length>=3)return;
-    const row=make('div','',{class:'embed-editor-card'}),extraTitle=field(item.title),extraBody=make('textarea',item.body||'',{maxlength:1000});
-    const entry={title:extraTitle,body:extraBody};
-    row.append(make('strong',t('extraEmbed')),label(t('displayTitle'),extraTitle),label(t('body'),extraBody),click(t('removeItem'),()=>{
+    const row=make('details','',{class:'embed-editor-card'});row.open=!initial;
+    const summary=make('summary',item.title||t('extraEmbed'));
+    const extraTitle=field(item.title),extraBody=make('textarea',item.body||'',{maxlength:1000});
+    const metadata=[
+      ['author','embedAuthor',256,'text'],['authorUrl','embedAuthorUrl',900,'url'],['authorIcon','embedAuthorIcon',900,'url'],
+      ['thumbnail','embedThumbnail',900,'url'],['image','image',900,'url'],['footer','footer',256,'text'],
+      ['footerIcon','embedFooterIcon',900,'url'],['color','color',7,'color']
+    ];
+    const controls=Object.fromEntries(metadata.map(([key,,max,type])=>[key,field(item[key]||(key==='color'?color.value:''),max,type)]));
+    const fieldsEditor=make('div','',{class:'stack'}),fieldsList=[];
+    function addField(value={}){
+      const name=field(value.name),valueInput=field(value.value,360),inline=check(value.inline),box=make('div','',{class:'area'});
+      const record={name,valueInput,inline};
+      fieldsList.push(record);fieldsEditor.append(box);
+      box.append(label(t('name'),name),label(t('fieldValue'),valueInput),label(t('inline'),inline),click(t('removeItem'),()=>{
+        fieldsList.splice(fieldsList.indexOf(record),1);box.remove();extraField.disabled=false;preview();
+      }));
+      extraField.disabled=fieldsList.length>=4;
+    }
+    const extraField=click(t('addField'),()=>addField());
+    for(const existingField of item.fields??[])addField(existingField);
+    const read=()=>({title:extraTitle.value,body:extraBody.value,
+      ...Object.fromEntries(Object.entries(controls).map(([key,input])=>[key,input.value])),
+      fields:fieldsList.map(field=>({name:field.name.value,value:field.valueInput.value,inline:field.inline.checked}))});
+    const entry={read};
+    entry.copy=click(t('duplicateEmbed'),()=>{addExtraCard(read());preview()});
+    const tools=make('div','',{class:'extra-embed-tools'});
+    tools.append(entry.copy,click(t('removeItem'),()=>{
       extraCards.splice(extraCards.indexOf(entry),1);row.remove();syncExtras();preview();
     }));
+    const advanced=make('details','',{class:'composer-group'});
+    const detailBody=make('div','',{class:'composer-group-content'});
+    detailBody.append(...metadata.map(([key,name])=>label(t(name),controls[key])),fieldsEditor,extraField);
+    advanced.append(make('summary',t('composerMedia')),detailBody);
+    extraTitle.oninput=()=>{summary.textContent=extraTitle.value.trim()||t('extraEmbed')};
+    row.append(summary,label(t('displayTitle'),extraTitle),label(t('body'),extraBody),advanced,tools);
     extraCards.push(entry);extraList.append(row);syncExtras();
   }
-  for(const item of look.extras??[])addExtraCard(item);
+  for(const item of look.extras??[])addExtraCard(item,true);
   extrasSection.append(extraList,addExtra);
   const embedCard=make('div','',{class:'embed-editor-card'});
   const actions=make('div','',{class:'embed-actions'});actions.append(openColor,duplicate);
@@ -753,6 +795,34 @@ function presentationEditor(panel,title,body){
   }
   previewShortcuts(card,formats,'composerOptions');
   previewShortcuts(insideCard,inside,'composerTicketActions');
+  function renderEmbed(item){
+    const result=make('div','',{class:'embed-preview-card'});
+    result.style.setProperty('--preview-accent',item.color||color.value);
+    const thumb=previewImage(item.thumbnail);
+    if(thumb){thumb.classList.add('embed-thumbnail');result.append(thumb)}
+    if(item.author){
+      const authorLine=make('div','',{class:'embed-author'}),icon=previewImage(item.authorIcon);
+      if(icon)authorLine.append(icon);
+      authorLine.append(item.authorUrl.startsWith('https://')?make('a',item.author,{href:item.authorUrl,target:'_blank',rel:'noopener noreferrer'}):discordText(item.author,true));
+      result.append(authorLine);
+    }
+    if(item.title){const title=make('strong');title.append(discordText(item.title,true));result.append(title)}
+    if(item.body)result.append(discordText(item.body));
+    const grid=make('div','',{class:'preview-fields'});
+    for(const field of item.fields??[])if(field.name||field.value){
+      const cell=make('div','',{class:'preview-field'+(field.inline?' inline':'')});
+      cell.append(discordText(field.name,true),discordText(field.value));grid.append(cell);
+    }
+    if(grid.childElementCount)result.append(grid);
+    const picture=previewImage(item.image);
+    if(picture)result.append(picture);
+    if(item.footer){
+      const footerLine=make('div','',{class:'embed-footer'}),icon=previewImage(item.footerIcon);
+      if(icon)footerLine.append(icon);
+      footerLine.append(discordText(item.footer,true));result.append(footerLine);
+    }
+    return result;
+  }
   function preview(){
     const p=dataValue();
     const usingV2=p.layout==='v2';
@@ -764,32 +834,17 @@ function presentationEditor(panel,title,body){
     components.hidden=publicPlacement.hidden=!usingV2;menuDetails.hidden=p.navigation!=='menu';
     canvas.style.borderColor=p.color;
     publicFormat.textContent=t(p.layout==='v2'?'v2':'embed')+' · '+t(p.navigation==='menu'?'menuMode':'buttonMode');
-    const message=[discordText(p.title||title.value||t('name'),true),discordText(body.value||t('body'))];
-    if(p.layout==='embed'){
-      const grid=make('div','',{class:'preview-fields'});
-      for(const f of p.fields)if(f.name||f.value){
-        const cell=make('div','',{class:'preview-field'+(f.inline?' inline':'')});
-        cell.append(discordText(f.name,true),discordText(f.value));grid.append(cell);
+    const message=[];
+    if(!usingV2){
+      const stack=make('div','',{class:'embed-stack'});
+      stack.append(renderEmbed({...p,title:p.title||title.value||t('name'),body:body.value||t('body')}),...p.extras.map(renderEmbed));
+      message.push(stack);
+    }else{
+      message.push(discordText(p.title||title.value||t('name'),true),discordText(body.value||t('body')));
+      for(const block of p.blocks){
+        const node=block.kind==='divider'?make('hr'):block.kind==='image'?previewImage(block.value):discordText(block.value);
+        if(node)message.push(node);
       }
-      if(grid.childElementCount)message.push(grid);
-      const picture=previewImage(p.image);
-      if(picture)message.push(picture);
-      const authorLine=make('div','',{class:'embed-author'}),authorPic=previewImage(p.authorIcon);
-      const thumb=previewImage(p.thumbnail);
-      if(thumb){thumb.classList.add('embed-thumbnail');message.unshift(thumb)}
-      if(p.author){if(authorPic)authorLine.append(authorPic);authorLine.append(discordText(p.author,true));message.unshift(authorLine)}
-      if(p.footer){
-        const line=make('div','',{class:'embed-footer'}),icon=previewImage(p.footerIcon);
-        if(icon)line.append(icon);
-        line.append(discordText(p.footer,true));message.push(line);
-      }
-      for(const item of p.extras){
-        const section=make('div','',{class:'extra-preview'});
-        section.append(discordText(item.title,true),discordText(item.body));message.push(section);
-      }
-    }else for(const b of p.blocks){
-      const node=b.kind==='divider'?make('hr'):b.kind==='image'?previewImage(b.value):discordText(b.value);
-      if(node)message.push(node);
     }
     const fallback=p.navigation==='menu'||links.length?title.value||t('name'):t('previewOpenTicket');
     const items=[[p.opener,fallback],...links.map(id=>{
@@ -1019,7 +1074,7 @@ function panelsPage(){
       draft.formEnabled&&answerFields.some(q=>q.kind==='choice'&&(new Set(q.options).size!==q.options.length||q.options.length<2||q.options.length>25||q.min>q.max||q.max>q.options.length))?'formChoiceLimits':'';
     if(problem){selectTab(3);saveError.textContent=t(problem);return}
     const size=(look.title||item.title).length+item.body.length+look.author.length+look.footer.length+
-      look.fields.reduce((n,x)=>n+x.name.length+x.value.length,0)+look.extras.reduce((n,x)=>n+x.title.length+x.body.length,0);
+      look.fields.reduce((n,x)=>n+x.name.length+x.value.length,0)+look.extras.reduce((n,x)=>n+x.title.length+x.body.length+x.author.length+x.footer.length+x.fields.reduce((m,f)=>m+f.name.length+f.value.length,0),0);
     if(look.layout==='embed'&&size>6000){selectTab(1);saveError.textContent=t('embedTooLong');return}
     if(demo){
       item.id ||= String(Date.now());
