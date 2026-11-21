@@ -57,6 +57,38 @@ function text(value,max,required=false) {
 function audit(guild,session,action) {
   db.prepare('INSERT INTO web_audit VALUES(?,?,?,?)').run(guild,session.user.id,action,Date.now());
 }
+const queueSelect='SELECT t.channel,t.area,t.opened,t.closed,t.owner,t.agent,t.priority,t.rating,t.agent IS NOT NULL AS assigned,s.panel,tr.id AS transcript';
+const queueJoins=' FROM tickets t LEFT JOIN ticket_panel_sources s ON s.channel=t.channel LEFT JOIN ticket_transcripts tr ON tr.channel=t.channel AND tr.guild=t.guild';
+function filteredQueue(guild,params){
+  if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tickets'").get())return {items:[],total:0};
+  const page=Number(params.get('page')||0),limit=Number(params.get('limit')||12);
+  if(!Number.isSafeInteger(page)||page<0||page>100000||![8,12,24].includes(limit))throw error(400,'invalid');
+  const conditions=['t.guild=?'],args=[guild];
+  const add=(condition,value)=>{conditions.push(condition);if(value!==undefined)args.push(value)};
+  const state=params.get('state');
+  if(state==='open')add('t.closed IS NULL');
+  if(state==='closed')add('t.closed IS NOT NULL');
+  const priority=params.get('priority');
+  if(priority&&['baixa','normal','alta','urgente'].includes(priority))add('t.priority=?',priority);
+  const term=(params.get('q')||'').trim().slice(0,100);
+  if(term){
+    conditions.push('(instr(lower(t.area),lower(?))>0 OR instr(t.channel,?)>0 OR t.owner=?)');
+    args.push(term,term,term);
+  }
+  const panel=params.get('panel');
+  if(panel)add('s.panel=?',panel.slice(0,80));
+  for(const [key,column] of [['owner','t.owner'],['agent','t.agent']]){
+    const id=params.get(key);
+    if(id)add(column+'=?',id.slice(0,24));
+  }
+  const after=params.get('after'),before=params.get('before');
+  if(after&&/^\d{4}-\d{2}-\d{2}$/.test(after)&&Number.isFinite(Date.parse(after)))add('t.opened>=?',Date.parse(after));
+  if(before&&/^\d{4}-\d{2}-\d{2}$/.test(before)&&Number.isFinite(Date.parse(before)))add('t.opened<?',Date.parse(before)+86400000);
+  const where=queueJoins+' WHERE '+conditions.join(' AND ');
+  const total=db.prepare('SELECT COUNT(*) AS total'+where).get(...args).total;
+  const items=db.prepare(queueSelect+where+' ORDER BY t.opened DESC,t.channel DESC LIMIT ? OFFSET ?').all(...args,limit,page*limit);
+  return {total,items};
+}
 function queue(guild) {
   const exists=db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tickets'").get();
   if (!exists) return {totals:{opened:0,closed:0,active:0,rated:0},items:[]};
@@ -160,6 +192,7 @@ createServer(async(req,res)=>{
     if(!route)throw error(404,'invalid');
     const [,guild,action]=route;
     if(!guilds.some(item=>item.id===guild))throw error(403,'forbidden');
+    if(method==='GET'&&action==='queue')return send(200,filteredQueue(guild,url.searchParams));
     const bot='Bot '+DISCORD_TOKEN;
     const [channels,roles]=await Promise.all([discord('/guilds/'+guild+'/channels',bot),discord('/guilds/'+guild+'/roles',bot)]);
     const settings=db.prepare('SELECT role,category,logs FROM settings WHERE guild=?').get(guild)??null;
