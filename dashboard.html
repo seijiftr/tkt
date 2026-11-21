@@ -74,6 +74,8 @@ Object.assign(lex['pt-BR'],{ticketColor:'Cor da mensagem do ticket',inheritColor
 Object.assign(lex.en,{ticketColor:'Ticket message color',inheritColor:'Use default color',exampleTicket:'Sample request',ticketHeading:'Ticket message title',ticketRequester:'Requester',ticketExampleUser:'@Member'});
 Object.assign(lex['pt-BR'],{savePanel:'Salvar painel',renameButton:'Renomear',claimButton:'Assumir',closeButton:'Fechar',savedPanel:'Sem alterações pendentes'});
 Object.assign(lex.en,{savePanel:'Save panel',renameButton:'Rename',claimButton:'Claim',closeButton:'Close',savedPanel:'No pending changes'});
+lex['pt-BR'].viewTranscript='Ver transcrição';
+lex.en.viewTranscript='View transcript';
 const $=id=>document.getElementById(id);
 let language=localStorage.getItem('tkt-language')==='en'?'en':'pt-BR';
 let panelEditing=false, queueMode=localStorage.getItem('tkt-queue-view')==='board'?'board':'table';
@@ -183,6 +185,7 @@ function queuePage(){
   const pageSize=8;
   const board=make('div','',{class:'ticket-board'});
   const ticketName=q=>q.channel&&q.closed===null?make('a',q.area,{href:'https://discord.com/channels/'+guild+'/'+q.channel,rel:'noopener noreferrer',target:'_blank'}):make('strong',q.area);
+  const transcriptLink=q=>make('a',t('viewTranscript'),{href:'/transcripts/'+q.transcript,target:'_blank',rel:'noopener noreferrer'});
   const priorityLabel=q=>make('span',t(priorities.includes(q.priority)?q.priority:'normal'),{class:'priority','data-priority':q.priority});
   function show(){
     const query=search.value.trim().toLocaleLowerCase(language);
@@ -193,7 +196,7 @@ function queuePage(){
       const row=make('tr'), name=make('td'), state=make('td');
       const link=ticketName(q);
       const opened=q.closed===null;
-      name.append(link);state.append(make('span',t(opened?'open':'done'),{class:'pill '+(opened?'open':'closed')}));
+      name.append(link);if(q.transcript)name.append(make('br'),transcriptLink(q));state.append(make('span',t(opened?'open':'done'),{class:'pill '+(opened?'open':'closed')}));
       const level=make('td');level.append(priorityLabel(q));row.append(name,state,level,make('td',date(q.opened)));return row;
     }));
     const showBoard=queueMode==='board';
@@ -207,6 +210,7 @@ function queuePage(){
         for(const item of tickets){
           const tile=make('article','',{class:'ticket-tile'});
           tile.append(ticketName(item),priorityLabel(item),make('time',date(item.opened),{datetime:new Date(item.opened).toISOString()}));
+          if(item.transcript)tile.append(transcriptLink(item));
           lane.append(tile);
         }
         return lane;
