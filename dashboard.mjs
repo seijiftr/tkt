@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import {initFaq} from './faq.mjs';
-import {initPanels,panelFromDb,panelMessage,validatePresentation,validateRules} from './panels.mjs';
+import {embedCharacters,initPanels,panelFromDb,panelMessage,validatePresentation,validateRules} from './panels.mjs';
 
 const { DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = process.env;
 const port = Number(process.env.DASHBOARD_PORT || 4310);
@@ -267,9 +267,7 @@ createServer(async(req,res)=>{
         const p=rules.presentation;
         if(p.faqId&&!db.prepare('SELECT 1 FROM faq_entries WHERE id=? AND guild=? AND published=1').get(p.faqId,guild))throw Error('Invalid FAQ');
         if(p.layout==='embed'){
-          const size=(p.title||title).length+body.length+p.author.length+p.footer.length+
-            p.fields.reduce((n,item)=>n+item.name.length+item.value.length,0)+
-            p.extras.reduce((n,item)=>n+item.title.length+item.body.length,0);
+          const size=embedCharacters(p,title,body)+p.extras.reduce((n,item)=>n+embedCharacters(item),0);
           if(size>6000)throw Error('Embed character limit');
         }
       }catch{throw error(400,'panelRulesInvalid')}
