@@ -111,6 +111,7 @@ export function panelMessage(panel,linked,locale){
     components:rows,allowed_mentions:{parse:[]}};
 }
 
+export const selectorKinds=new Set(['choice','user','role','channel']);
 export function validateRules(value,roles,channels){
   const r=value??{};
   if(typeof r!=='object'||Array.isArray(r))throw Error('Invalid rules');
@@ -141,13 +142,14 @@ export function validateRules(value,roles,channels){
   if(!Array.isArray(q)||q.length>5)throw Error('Invalid questions');
   const questions=q.map(x=>{
     if(x?.kind==='notice')return {kind:'notice',text:limited(x.text??'',1000),label:'',required:false,options:[]};
-    if(!x||typeof x.label!=='string'||x.label.trim().length<1||x.label.trim().length>45||!['short','long','choice','checkbox','file'].includes(x.kind)||typeof x.required!=='boolean')throw Error('Invalid question');
+    if(!x||typeof x.label!=='string'||x.label.trim().length<1||x.label.trim().length>45||!(['short','long','checkbox','file'].includes(x.kind)||selectorKinds.has(x.kind))||typeof x.required!=='boolean')throw Error('Invalid question');
     const options=x.kind==='choice'?x.options:[];
     if(!Array.isArray(options)||x.kind==='choice'&&(options.length<2||options.length>25||options.some(o=>typeof o!=='string'||!o.trim()||o.trim().length>80)))throw Error('Invalid choices');
     const list=options.map(o=>o.trim());
     if(new Set(list).size!==list.length)throw Error('Duplicate choices');
-    const min=x.kind==='choice'?(x.min??Number(x.required)):0,max=x.kind==='choice'?(x.max??1):1;
-    if(!Number.isInteger(min)||!Number.isInteger(max)||min<Number(x.kind==='choice'&&x.required)||max<1||min>max||
+    const selector=selectorKinds.has(x.kind);
+    const min=selector?(x.min??Number(x.required)):0,max=selector?(x.max??1):1;
+    if(!Number.isInteger(min)||!Number.isInteger(max)||min<Number(selector&&x.required)||max<1||max>25||min>max||
       x.kind==='choice'&&max>list.length)throw Error('Invalid selection limits');
     return {label:x.label.trim(),kind:x.kind,required:x.required,options:list,min,max};
 
