@@ -218,14 +218,11 @@ const entitySelectors={
   channel:{builder:ChannelSelectMenuBuilder,label:'setChannelSelectMenuComponent',field:'getSelectedChannels',mention:'#'}
 };
 function selectorRange(question){return {min:question.min??Number(question.required),max:question.max??1}}
+const intakeQuestions=panel=>panel?.rules.formEnabled===false?[]:panel?.rules.questions??[];
 function panelModal(i,panel){
-  const form=panel.rules.formEnabled===false?[]:panel.rules.questions??[];
+  const form=intakeQuestions(panel);
   const title=(translated(i,'Abrir','Open')+' · '+panel.title).slice(0,45);
   const modal=new ModalBuilder().setCustomId('v:form:'+panel.id+':'+revision(panel)).setTitle(title);
-  if(!form.length){
-    const text=new TextInputBuilder().setCustomId('description').setStyle(TextInputStyle.Paragraph).setMaxLength(1800).setRequired(true);
-    return modal.addLabelComponents(new LabelBuilder().setLabel(translated(i,'Descreva seu pedido','Describe your request')).setTextInputComponent(text));
-  }
   for(const [index,question] of form.entries()){
     if(question.kind==='notice'){modal.addTextDisplayComponents(new TextDisplayBuilder().setContent(question.text));continue}
     const label=new LabelBuilder().setLabel(question.label);
@@ -440,8 +437,8 @@ async function openTicket(i, config, panel=null) {
     }
     const area=panel?.title??i.message?.embeds[0]?.title?.trim();
     const warning=panel?checkAvailability(i,panel):'';
-    const hasForm=Boolean(panel?.rules.formEnabled!==false&&panel?.rules.questions?.length);
-    const description=hasForm?translated(i,'Respostas do formulário','Form responses'):i.fields.getTextInputValue('description').trim();
+    const hasForm=intakeQuestions(panel).length>0;
+    const description=hasForm?translated(i,'Respostas do formulário','Form responses'):translated(i,'Atendimento aberto. Envie sua mensagem neste canal.','Ticket opened. Send your message in this channel.');
     if(!area||!description)throw new Error(translated(i,'Preencha a área e a descrição.','Enter the area and description.'));
     const {fields:answers,uploads}=hasForm?panelAnswers(i,panel):{fields:[],uploads:[]};
     const files=await downloadUploads(uploads);
@@ -784,7 +781,9 @@ client.on(Events.InteractionCreate, async i => {
       const panel=panelFromDb(db,i.guildId,chosen);
       if(!panel)return await privateReply(i,translated(i,'Este painel está indisponível.','This panel is unavailable.'));
       checkAvailability(i,panel);
-      return await i.showModal(panelModal(i,panel));
+      if(intakeQuestions(panel).length)return await i.showModal(panelModal(i,panel));
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      return await openTicket(i,config,panel);
     }
     if(i.isModalSubmit()&&i.customId.startsWith('v:form:')){
       const [, ,id,version]=i.customId.split(':');
@@ -797,9 +796,8 @@ client.on(Events.InteractionCreate, async i => {
       if (!config) return await privateReply(i,translated(i,'A central ainda não foi configurada.',"The support desk is not configured yet."));
       const area = i.message.embeds[0]?.title;
       if (!area) return await privateReply(i,'Publique este painel novamente.');
-      const description = new TextInputBuilder().setCustomId('description').setLabel(translated(i,'Descreva seu pedido','Describe your request')).setStyle(TextInputStyle.Paragraph).setMaxLength(1800).setRequired(true);
-      return await i.showModal(new ModalBuilder().setCustomId('v:intake').setTitle((translated(i,'Abrir','Open')+' · '+area).slice(0,45))
-        .addComponents(new ActionRowBuilder().addComponents(description)));
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      return await openTicket(i,config);
     }
     if (!config) return;
     if (i.isModalSubmit() && i.customId === 'v:intake') {
