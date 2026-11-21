@@ -62,7 +62,7 @@ async function findPreviousPanels(panelId,channel,bot){
     for(const message of messages){
       if(message.author?.id!==DISCORD_CLIENT_ID||!isId(message.id))continue;
       const root=primaryPanelComponent(message.components);
-      if(root==='v:open:'+panelId||root==='v:choose:'+panelId)found.push(message.id);
+      if(root==='v:open:'+panelId||root==='v:choose:'+panelId||root?.startsWith('v:choose:'+panelId+':'))found.push(message.id);
     }
     if(messages.length<100||!isId(messages.at(-1)?.id))break;
     before=messages.at(-1).id;
